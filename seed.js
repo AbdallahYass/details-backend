@@ -1,67 +1,98 @@
 const mongoose = require('mongoose');
 
-// تعريف شكل المنتج (نفس الموجود في server.js)
+// 1. تعريف شكل البيانات (نفس الشكل المطور لـ Lady90s)
 const productSchema = new mongoose.Schema({
-    name: String,
-    price: Number,
+    name: { type: String, required: true },
     description: String,
-    imageUrl: String
+    price: { type: Number, required: true },
+    oldPrice: Number, // السعر قبل الخصم
+    brand: String, // الماركة
+    dimensions: String, // الأبعاد
+    imageUrl: { type: String, required: true },
+    isSoldOut: { type: Boolean, default: false }, // هل نفذت؟
+    category: { type: String, default: 'bags' }
 });
 
 const Product = mongoose.model('Product', productSchema);
 
-// 🔴 هام جداً: استبدل هذا الرابط برابط Atlas الخاص بك (نفس الموجود في server.js)
+// 2. رابط قاعدة البيانات (تأكد أنه نفس الموجود في server.js)
+// ملاحظة: لقد استخدمت الرابط الذي أرسلته أنت في الرسالة الأخيرة
 const dbURI = "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/?appName=DetailsCluster";
 
-// قائمة المنتجات الفخمة
+// 3. بيانات تجريبية فخمة (نسخة ليدي 90s)
 const products = [
     {
-        name: "Classic Leather Tote",
-        price: 120.0,
-        description: "حقيبة جلدية سوداء كلاسيكية، مثالية للعمل والاجتماعات الرسمية. تتسع للابتوب ومستلزماتك اليومية.",
-        imageUrl: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80"
+        name: "Vintage Celine Macadam",
+        price: 185.0,
+        oldPrice: 220.0, // كان 220 وصار 185
+        brand: "Celine",
+        description: "حقيبة سيلين فينتاج بنقشة الماكاديم الشهيرة. حالة ممتازة مع حزام جلدي طويل.",
+        dimensions: "25cm x 18cm",
+        imageUrl: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=800&q=80",
+        isSoldOut: false,
+        category: "bags"
     },
     {
-        name: "Minimalist Beige Handbag",
-        price: 95.0,
-        description: "حقيبة يد بلون بيج هادئ، تصميم مينيمالي عصري يناسب الإطلالات الصباحية والمسائية.",
-        imageUrl: "https://images.unsplash.com/photo-1590874103328-eac38a683ce7?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80"
+        name: "Prada Nylon Mini Hobo",
+        price: 140.0,
+        oldPrice: null, // سعر ثابت بدون خصم
+        brand: "Prada",
+        description: "القطعة الأكثر طلباً. حقيبة برادا نايلون سوداء، عملية وأنيقة لكل المناسبات.",
+        dimensions: "22cm x 14cm",
+        imageUrl: "https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=800&q=80",
+        isSoldOut: true, // نفذت الكمية (عشان نجرب الليبل الأحمر)
+        category: "bags"
     },
     {
-        name: "Vintage Crossbody Bag",
-        price: 85.0,
-        description: "حقيبة كروس بنمط فينتاج، مصنوعة من الجلد البني المعالج. عملية وأنيقة للسفر والطلعات الخفيفة.",
-        imageUrl: "https://images.unsplash.com/photo-1591561954557-26941169b49e?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80"
+        name: "Gucci Jackie Vintage",
+        price: 210.0,
+        oldPrice: 250.0,
+        brand: "Gucci",
+        description: "أيقونة غوتشي الخالدة. جلد طبيعي أسود مع إبزيم معدني فضي.",
+        dimensions: "28cm x 19cm",
+        imageUrl: "https://images.unsplash.com/photo-1591561954557-26941169b49e?auto=format&fit=crop&w=800&q=80",
+        isSoldOut: false,
+        category: "bags"
     },
     {
-        name: "Details Signature Clutch",
-        price: 150.0,
-        description: "كلتش سهرة فاخر من مجموعة Details الحصرية. تصميم لامع يناسب المناسبات الخاصة.",
-        imageUrl: "https://images.unsplash.com/photo-1566150905458-1bf1fc113f0d?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80"
+        name: "YSL Clutch Patent",
+        price: 195.0,
+        oldPrice: null,
+        brand: "YSL",
+        description: "كلتش سهرة من إيف سان لوران، جلد لامع (Patent) لون عنابي.",
+        dimensions: "24cm x 12cm",
+        imageUrl: "https://images.unsplash.com/photo-1566150905458-1bf1fc113f0d?auto=format&fit=crop&w=800&q=80",
+        isSoldOut: false,
+        category: "accessories"
     },
     {
-        name: "Urban Canvas Backpack",
-        price: 70.0,
-        description: "حقيبة ظهر قماشية متينة وعملية، مناسبة للجامعة والرحلات اليومية.",
-        imageUrl: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80"
+        name: "Christian Dior Saddle",
+        price: 350.0,
+        oldPrice: 400.0,
+        brand: "Dior",
+        description: "حقيبة ديور سادل فينتاج، قماش مونوغرام أزرق. قطعة نادرة.",
+        dimensions: "26cm x 20cm",
+        imageUrl: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=800&q=80",
+        isSoldOut: false,
+        category: "bags"
     }
 ];
 
-// الاتصال وإضافة المنتجات
+// 4. التنفيذ
 mongoose.connect(dbURI)
     .then(async () => {
-        console.log('✅ تم الاتصال بقاعدة البيانات السحابية');
+        console.log('✅ Connected to MongoDB');
         
-        // مسح المنتجات القديمة (اختياري، عشان ما يصير تكرار)
+        // مسح القديم
         await Product.deleteMany({});
-        console.log('🗑️  تم مسح البيانات القديمة');
+        console.log('🗑️  Old products deleted');
 
-        // إضافة المنتجات الجديدة
+        // إضافة الجديد
         await Product.insertMany(products);
-        console.log('🎉 تم إضافة منتجات Details Store بنجاح!');
+        console.log('✨ New Lady90s-style products added successfully!');
         
         mongoose.connection.close();
     })
     .catch(err => {
-        console.log('❌ خطأ:', err);
+        console.log('❌ Error:', err);
     });

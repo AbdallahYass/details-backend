@@ -1,76 +1,77 @@
+require('dotenv').config(); // حماية البيانات الحساسة مثل رابط قاعدة البيانات
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-// 1. إعدادات أساسية (Middleware)
-app.use(cors()); // يسمح لتطبيق Flutter بالاتصال بالسيرفر
-app.use(express.json()); // يسمح للسيرفر بفهم البيانات بصيغة JSON
+// 1. Middleware
+app.use(cors()); 
+app.use(express.json());
 
-// 2. الاتصال بقاعدة البيانات (Details Store DB)
-const dbURI = "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/?appName=DetailsCluster";
+// 2. الاتصال بقاعدة البيانات (MongoDB Atlas)
+// نصيحة: استبدل الرابط في ملف .env لحمايته عند الرفع عبر GitHub Actions
+const dbURI = process.env.MONGODB_URI || "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/?appName=DetailsCluster";
 
 mongoose.connect(dbURI)
-    .then(() => console.log('✅ تم الاتصال بقاعدة البيانات السحابية (Atlas) بنجاح!'))
-    .catch(err => console.log('❌ فشل الاتصال:', err));
+    .then(() => console.log('✅ Connected to Details Store Database'))
+    .catch(err => console.error('❌ Database Connection Error:', err));
 
-// 3. تصميم شكل البيانات (Product Schema)
-// هذا يحدد كيف يبدو "المنتج" داخل قاعدة البيانات
+// 3. Schema المطور (لدعم "تفاصيل" موقع Lady90s)
 const productSchema = new mongoose.Schema({
-    name: { type: String, required: true }, // اسم الشنطة
-    description: String, // الوصف التفصيلي
-    price: { type: Number, required: true }, // السعر الحالي
-    oldPrice: Number, // السعر القديم (عشان نشطب عليه)
-    brand: String, // الماركة: YSL, Prada, etc.
-    dimensions: String, // الأبعاد: قاعدة 20 سم
-    imageUrl: { type: String, required: true }, // رابط الصورة الأساسية
-    isSoldOut: { type: Boolean, default: false }, // هل نفذت الكمية؟
-    category: { type: String, default: 'bags' } // تصنيف: bags, watches, accessories
-});
+    name: { type: String, required: true, trim: true },
+    brand: { type: String, uppercase: true }, // الماركة دائماً Capital للفخامة
+    description: String,
+    price: { type: Number, required: true },
+    oldPrice: Number,
+    dimensions: String,
+    // تغيير imageUrl لمصفوفة ليدعم تأثير الـ Hover (صورتين أو أكثر)
+    images: [{ type: String, required: true }], 
+    category: { type: String, default: 'unlisted' },
+    isSoldOut: { type: Boolean, default: false },
+    featured: { type: Boolean, default: false } // للمنتجات التي تظهر في الـ Hero Section
+}, { timestamps: true }); // يضيف تلقائياً وقت الإنشاء والتحديث
+
 const Product = mongoose.model('Product', productSchema);
 
-// 4. الروابط (Routes) - نقاط الاتصال
+// 4. الروابط (Routes)
 
-// رابط تجريبي للتأكد أن السيرفر يعمل
-app.get('/', (req, res) => {
-    res.send('Welcome to Details Store API 👜');
-});
-
-// رابط لجلب جميع المنتجات (هذا الذي سيطلبه Flutter)
+// جلب المنتجات مع إمكانية الفلترة حسب التصنيف
 app.get('/api/products', async (req, res) => {
     try {
-        const products = await Product.find(); // هات كل المنتجات
-        res.json(products);
+        const { category } = req.query;
+        const query = category ? { category } : {};
+        const products = await Product.find(query).sort({ createdAt: -1 });
+        res.status(200).json(products);
     } catch (err) {
-        res.status(500).json({ message: err.message });
+        res.status(500).json({ message: "خطأ في جلب البيانات", error: err.message });
     }
 });
 
-// رابط لإضافة منتج جديد (سنستخدمه لتعبئة البيانات)
-app.post('/api/products', async (req, res) => {
-    const product = new Product({
-        name: req.body.name,
-        price: req.body.price,
-        oldPrice: req.body.oldPrice, // جديد
-        description: req.body.description,
-        brand: req.body.brand, // جديد
-        dimensions: req.body.dimensions, // جديد
-        imageUrl: req.body.imageUrl,
-        isSoldOut: req.body.isSoldOut || false,
-        category: req.body.category || 'bags'
-    });
-
+// جلب تفاصيل منتج معين (مهم جداً لصفحة Details)
+app.get('/api/products/:id', async (req, res) => {
     try {
-        const newProduct = await product.save();
-        res.status(201).json(newProduct);
+        const product = await Product.findById(req.params.id);
+        if (!product) return res.status(404).json({ message: "المنتج غير موجود" });
+        res.json(product);
     } catch (err) {
-        res.status(400).json({ message: err.message });
+        res.status(500).json({ message: "خطأ في جلب تفاصيل المنتج" });
+    }
+});
+
+// إضافة منتج جديد
+app.post('/api/products', async (req, res) => {
+    try {
+        const newProduct = new Product(req.body);
+        const savedProduct = await newProduct.save();
+        res.status(201).json(savedProduct);
+    } catch (err) {
+        res.status(400).json({ message: "تأكد من إدخال البيانات بشكل صحيح", error: err.message });
     }
 });
 
 // 5. تشغيل السيرفر
 app.listen(PORT, () => {
-    console.log(`🚀 السيرفر يعمل الآن على الرابط: http://localhost:${PORT}`);
+    console.log(`🚀 Server is running on port: ${PORT}`);
 });
