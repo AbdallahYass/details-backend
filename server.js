@@ -19,12 +19,16 @@ mongoose.connect(dbURI)
 // 3. تصميم شكل البيانات (Product Schema)
 // هذا يحدد كيف يبدو "المنتج" داخل قاعدة البيانات
 const productSchema = new mongoose.Schema({
-    name: String,       // اسم المنتج
-    price: Number,      // السعر
-    description: String,// الوصف
-    imageUrl: String    // رابط الصورة
+    name: { type: String, required: true }, // اسم الشنطة
+    description: String, // الوصف التفصيلي
+    price: { type: Number, required: true }, // السعر الحالي
+    oldPrice: Number, // السعر القديم (عشان نشطب عليه)
+    brand: String, // الماركة: YSL, Prada, etc.
+    dimensions: String, // الأبعاد: قاعدة 20 سم
+    imageUrl: { type: String, required: true }, // رابط الصورة الأساسية
+    isSoldOut: { type: Boolean, default: false }, // هل نفذت الكمية؟
+    category: { type: String, default: 'bags' } // تصنيف: bags, watches, accessories
 });
-
 const Product = mongoose.model('Product', productSchema);
 
 // 4. الروابط (Routes) - نقاط الاتصال
@@ -49,12 +53,17 @@ app.post('/api/products', async (req, res) => {
     const product = new Product({
         name: req.body.name,
         price: req.body.price,
+        oldPrice: req.body.oldPrice, // جديد
         description: req.body.description,
-        imageUrl: req.body.imageUrl
+        brand: req.body.brand, // جديد
+        dimensions: req.body.dimensions, // جديد
+        imageUrl: req.body.imageUrl,
+        isSoldOut: req.body.isSoldOut || false,
+        category: req.body.category || 'bags'
     });
 
     try {
-        const newProduct = await product.save(); // حفظ في الداتابيز
+        const newProduct = await product.save();
         res.status(201).json(newProduct);
     } catch (err) {
         res.status(400).json({ message: err.message });
