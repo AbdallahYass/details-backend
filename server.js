@@ -1,4 +1,4 @@
-require('dotenv').config(); // حماية البيانات الحساسة مثل رابط قاعدة البيانات
+require('dotenv').config(); 
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -11,33 +11,44 @@ app.use(cors());
 app.use(express.json());
 
 // 2. الاتصال بقاعدة البيانات (MongoDB Atlas)
-// نصيحة: استبدل الرابط في ملف .env لحمايته عند الرفع عبر GitHub Actions
 const dbURI = process.env.MONGODB_URI || "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/?appName=DetailsCluster";
 
 mongoose.connect(dbURI)
     .then(() => console.log('✅ Connected to Details Store Database'))
     .catch(err => console.error('❌ Database Connection Error:', err));
 
-// 3. Schema المطور (لدعم "تفاصيل" موقع Lady90s)
+// 3. تعريف الـ Schemas (قوالب البيانات)
+
+// قالب المنتجات
 const productSchema = new mongoose.Schema({
     name: { type: String, required: true, trim: true },
-    brand: { type: String, uppercase: true }, // الماركة دائماً Capital للفخامة
+    brand: { type: String, uppercase: true },
     description: String,
     price: { type: Number, required: true },
     oldPrice: Number,
     dimensions: String,
-    // تغيير imageUrl لمصفوفة ليدعم تأثير الـ Hover (صورتين أو أكثر)
-    images: [{ type: String, required: true }], 
+    imageUrl: { type: String, required: true }, 
+    images: [String], 
     category: { type: String, default: 'unlisted' },
     isSoldOut: { type: Boolean, default: false },
-    featured: { type: Boolean, default: false } // للمنتجات التي تظهر في الـ Hero Section
-}, { timestamps: true }); // يضيف تلقائياً وقت الإنشاء والتحديث
+    featured: { type: Boolean, default: false }
+}, { timestamps: true });
 
 const Product = mongoose.model('Product', productSchema);
 
+// قالب الإعلانات (Banners) - المضافة حديثاً
+const bannerSchema = new mongoose.Schema({
+    title: { type: String, required: true },
+    imageUrl: { type: String, required: true },
+    buttonText: { type: String, default: "اكتشف ديتيلز" },
+    link: String
+}, { timestamps: true });
+
+const Banner = mongoose.model('Banner', bannerSchema);
+
 // 4. الروابط (Routes)
 
-// جلب المنتجات مع إمكانية الفلترة حسب التصنيف
+// --- روابط المنتجات ---
 app.get('/api/products', async (req, res) => {
     try {
         const { category } = req.query;
@@ -49,7 +60,6 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
-// جلب تفاصيل منتج معين (مهم جداً لصفحة Details)
 app.get('/api/products/:id', async (req, res) => {
     try {
         const product = await Product.findById(req.params.id);
@@ -60,7 +70,6 @@ app.get('/api/products/:id', async (req, res) => {
     }
 });
 
-// إضافة منتج جديد
 app.post('/api/products', async (req, res) => {
     try {
         const newProduct = new Product(req.body);
@@ -68,6 +77,28 @@ app.post('/api/products', async (req, res) => {
         res.status(201).json(savedProduct);
     } catch (err) {
         res.status(400).json({ message: "تأكد من إدخال البيانات بشكل صحيح", error: err.message });
+    }
+});
+
+// --- روابط الإعلانات (Banners) ---
+// الرابط الذي سيطلبه Flutter للسلايدر العلوي
+app.get('/api/banners', async (req, res) => {
+    try {
+        const banners = await Banner.find().sort({ createdAt: -1 });
+        res.status(200).json(banners);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في جلب الإعلانات", error: err.message });
+    }
+});
+
+// إضافة إعلان جديد (سيستخدم لاحقاً في صفحة الأدمن)
+app.post('/api/banners', async (req, res) => {
+    try {
+        const newBanner = new Banner(req.body);
+        const savedBanner = await newBanner.save();
+        res.status(201).json(savedBanner);
+    } catch (err) {
+        res.status(400).json({ message: "خطأ في إضافة الإعلان", error: err.message });
     }
 });
 
