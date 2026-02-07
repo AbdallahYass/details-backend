@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-// تعريف الـ Schema
+// تعريف شكل المنتج (نفس الموجود في server.js)
 const productSchema = new mongoose.Schema({
     name: String,
     price: Number,
@@ -10,44 +10,58 @@ const productSchema = new mongoose.Schema({
 
 const Product = mongoose.model('Product', productSchema);
 
-// البيانات
+// 🔴 هام جداً: استبدل هذا الرابط برابط Atlas الخاص بك (نفس الموجود في server.js)
+const dbURI = "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/?appName=DetailsCluster";
+
+// قائمة المنتجات الفخمة
 const products = [
     {
-        name: "Classic Leather Totebag",
-        price: 120.00,
-        description: "حقيبة جلدية فاخرة.",
+        name: "Classic Leather Tote",
+        price: 120.0,
+        description: "حقيبة جلدية سوداء كلاسيكية، مثالية للعمل والاجتماعات الرسمية. تتسع للابتوب ومستلزماتك اليومية.",
         imageUrl: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80"
     },
     {
-        name: "Golden Elegance Watch",
-        price: 250.50,
-        description: "ساعة ذهبية عصرية.",
-        imageUrl: "https://images.unsplash.com/photo-1524592094714-0f0654e20314?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80"
+        name: "Minimalist Beige Handbag",
+        price: 95.0,
+        description: "حقيبة يد بلون بيج هادئ، تصميم مينيمالي عصري يناسب الإطلالات الصباحية والمسائية.",
+        imageUrl: "https://images.unsplash.com/photo-1590874103328-eac38a683ce7?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80"
+    },
+    {
+        name: "Vintage Crossbody Bag",
+        price: 85.0,
+        description: "حقيبة كروس بنمط فينتاج، مصنوعة من الجلد البني المعالج. عملية وأنيقة للسفر والطلعات الخفيفة.",
+        imageUrl: "https://images.unsplash.com/photo-1591561954557-26941169b49e?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80"
+    },
+    {
+        name: "Details Signature Clutch",
+        price: 150.0,
+        description: "كلتش سهرة فاخر من مجموعة Details الحصرية. تصميم لامع يناسب المناسبات الخاصة.",
+        imageUrl: "https://images.unsplash.com/photo-1566150905458-1bf1fc113f0d?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80"
+    },
+    {
+        name: "Urban Canvas Backpack",
+        price: 70.0,
+        description: "حقيبة ظهر قماشية متينة وعملية، مناسبة للجامعة والرحلات اليومية.",
+        imageUrl: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80"
     }
 ];
 
-// دالة التشغيل الرئيسية
-const seedDB = async () => {
-    try {
-        // 1. الاتصال (نستخدم 127.0.0.1 بدلاً من localhost)
-        await mongoose.connect('mongodb://127.0.0.1:27017/details_store');
-        console.log('✅ تم الاتصال بقاعدة البيانات');
-
-        // 2. مسح القديم
+// الاتصال وإضافة المنتجات
+mongoose.connect(dbURI)
+    .then(async () => {
+        console.log('✅ تم الاتصال بقاعدة البيانات السحابية');
+        
+        // مسح المنتجات القديمة (اختياري، عشان ما يصير تكرار)
         await Product.deleteMany({});
-        console.log('🗑️ تم مسح البيانات القديمة');
+        console.log('🗑️  تم مسح البيانات القديمة');
 
-        // 3. إضافة الجديد
+        // إضافة المنتجات الجديدة
         await Product.insertMany(products);
-        console.log('✨ تم إضافة المنتجات الجديدة بنجاح!');
-
-    } catch (err) {
-        console.log('❌ حدث خطأ:', err);
-    } finally {
-        // 4. إغلاق الاتصال
-        await mongoose.connection.close();
-        console.log('👋 تم إغلاق الاتصال');
-    }
-};
-
-seedDB();
+        console.log('🎉 تم إضافة منتجات Details Store بنجاح!');
+        
+        mongoose.connection.close();
+    })
+    .catch(err => {
+        console.log('❌ خطأ:', err);
+    });
