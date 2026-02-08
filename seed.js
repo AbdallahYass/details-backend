@@ -130,6 +130,18 @@ const luxuryProducts = [
             "https://images.unsplash.com/photo-1598033129183-c4f50c736f10?auto=format&fit=crop&q=80&w=800",
             "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&q=80&w=800"
         ]
+    },
+    {
+        name: { en: "Gucci Leather Loafers", ar: "حذاء غوتشي جلدي" },
+        description: {
+            ar: "حذاء لوفر كلاسيكي من الجلد الأسود الفاخر.",
+            en: "Classic black leather loafers."
+        },
+        price: 950.0, brand: "Gucci", dimensions: "Size 42", category: "shoes",
+        imageUrl: "https://images.unsplash.com/photo-1614252235316-8c857d38b5f4?auto=format&fit=crop&q=80&w=800",
+        images: [
+            "https://images.unsplash.com/photo-1614252235316-8c857d38b5f4?auto=format&fit=crop&q=80&w=800"
+        ]
     }
 ];
 
@@ -176,18 +188,39 @@ async function seedDatabase() {
         await Category.deleteMany({});
         console.log('🗑️ Old data cleared');
 
-        // 1. إدراج التصنيفات أولاً للحصول على IDs
-        const createdCategories = await Category.insertMany(categories);
-        console.log('📂 Inserted categories');
+        // 1. إدراج التصنيفات الأساسية (المعرفة مسبقاً)
+        for (const catData of categories) {
+            await new Category(catData).save();
+        }
+        console.log('📂 Inserted predefined categories');
 
-        // 2. ربط المنتجات بالـ IDs الخاصة بالتصنيفات
-        const productsWithCategoryIds = luxuryProducts.map(product => {
-            const category = createdCategories.find(c => c.slug === product.category);
-            return { ...product, category: category._id };
-        });
+        // 2. إدراج المنتجات (مع إنشاء التصنيفات الجديدة تلقائياً)
+        for (const productData of luxuryProducts) {
+            const categorySlug = productData.category; // e.g., "bags", "shoes"
 
-        await Product.insertMany(productsWithCategoryIds);
-        console.log(`✨ Inserted ${productsWithCategoryIds.length} products with linked categories`);
+            // البحث عن التصنيف
+            let category = await Category.findOne({ slug: categorySlug });
+
+            // إذا لم يكن موجوداً، قم بإنشائه (محاكاة لمنطق الأدمن)
+            if (!category) {
+                console.log(`✨ Auto-creating new category: ${categorySlug}`);
+                category = new Category({
+                    name: { ar: categorySlug, en: categorySlug.charAt(0).toUpperCase() + categorySlug.slice(1) },
+                    slug: categorySlug,
+                    imageUrl: "https://placehold.co/600x400?text=" + categorySlug // صورة افتراضية
+                });
+                await category.save();
+            }
+
+            // إنشاء المنتج وربطه بالـ ID
+            const product = new Product({
+                ...productData,
+                category: category._id
+            });
+            await product.save();
+        }
+        
+        console.log(`✨ Inserted ${luxuryProducts.length} products (some with auto-created categories)`);
 
         await Banner.insertMany(banners);
         console.log('📸 Inserted 3 active banners');
