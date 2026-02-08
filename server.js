@@ -21,9 +21,15 @@ mongoose.connect(dbURI)
 
 // قالب المنتجات (يدعم Hover Effect عبر مصفوفة images)
 const productSchema = new mongoose.Schema({
-    name: { type: String, required: true, trim: true },
+    name: { 
+        ar: { type: String, required: true, trim: true },
+        en: { type: String, required: true, trim: true }
+    },
     brand: { type: String, uppercase: true, default: 'DETAILS' },
-    description: String,
+    description: {
+        ar: { type: String },
+        en: { type: String }
+    },
     price: { type: Number, required: true },
     oldPrice: Number,
     dimensions: String,
@@ -38,9 +44,15 @@ const Product = mongoose.model('Product', productSchema);
 
 // قالب الإعلانات (Banners)
 const bannerSchema = new mongoose.Schema({
-    title: { type: String, required: true },
+    title: { 
+        ar: { type: String, required: true },
+        en: { type: String, required: true }
+    },
     imageUrl: { type: String, required: true },
-    buttonText: { type: String, default: "اكتشف ديتيلز" },
+    buttonText: { 
+        ar: { type: String, default: "اكتشف ديتيلز" },
+        en: { type: String, default: "Discover Details" }
+    },
     link: String
 }, { timestamps: true });
 
