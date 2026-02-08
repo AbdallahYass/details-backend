@@ -53,7 +53,9 @@ const bannerSchema = new mongoose.Schema({
         ar: { type: String, default: "اكتشف ديتيلز" },
         en: { type: String, default: "Discover Details" }
     },
-    link: String
+    link: String,
+    location: { type: String, enum: ['home', 'category'], default: 'home' }, // 'home' or 'category'
+    category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' } // يربط الإعلان بكاتيجوري معين
 }, { timestamps: true });
 
 const Banner = mongoose.model('Banner', bannerSchema);
@@ -187,7 +189,20 @@ app.delete('/api/products/:id', async (req, res) => {
 
 app.get('/api/banners', async (req, res) => {
     try {
-        const banners = await Banner.find().sort({ createdAt: -1 });
+        const { location, category } = req.query;
+        let query = {};
+
+        if (location) query.location = location;
+
+        if (category) {
+            // البحث عن الكاتيجوري باستخدام الـ slug
+            const categoryDoc = await Category.findOne({ slug: category });
+            if (categoryDoc) {
+                query.category = categoryDoc._id;
+            }
+        }
+
+        const banners = await Banner.find(query).sort({ createdAt: -1 });
         res.status(200).json(banners);
     } catch (err) {
         res.status(500).json({ message: "خطأ في جلب الإعلانات" });

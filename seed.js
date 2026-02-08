@@ -32,7 +32,9 @@ const bannerSchema = new mongoose.Schema({
     buttonText: { 
         ar: { type: String, default: "اكتشف ديتيلز" },
         en: { type: String, default: "Discover Details" }
-    }
+    },
+    location: { type: String, enum: ['home', 'category'], default: 'home' },
+    category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' }
 });
 
 const Banner = mongoose.model('Banner', bannerSchema);
@@ -142,6 +144,42 @@ const luxuryProducts = [
         images: [
             "https://images.unsplash.com/photo-1614252235316-8c857d38b5f4?auto=format&fit=crop&q=80&w=800"
         ]
+    },
+    {
+        name: { en: "Balenciaga Triple S", ar: "بالنسياغا تريبل إس" },
+        description: {
+            ar: "حذاء رياضي ضخم بتصميم عصري وجريء.",
+            en: "Oversized sneaker with a modern and bold design."
+        },
+        price: 1100.0, brand: "Balenciaga", dimensions: "Size 43", category: "shoes",
+        imageUrl: "https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?auto=format&fit=crop&q=80&w=800",
+        images: [
+            "https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?auto=format&fit=crop&q=80&w=800"
+        ]
+    },
+    {
+        name: { en: "Cartier Love Bracelet", ar: "سوار كارتييه لوف" },
+        description: {
+            ar: "سوار أيقوني من الذهب الأصفر، رمز للحب الأبدي.",
+            en: "Iconic yellow gold bracelet, a symbol of eternal love."
+        },
+        price: 6500.0, brand: "Cartier", dimensions: "Size 17", category: "jewelry",
+        imageUrl: "https://images.unsplash.com/photo-1611591437281-460bfbe1220a?auto=format&fit=crop&q=80&w=800",
+        images: [
+            "https://images.unsplash.com/photo-1611591437281-460bfbe1220a?auto=format&fit=crop&q=80&w=800"
+        ]
+    },
+    {
+        name: { en: "Van Cleef Alhambra Necklace", ar: "قلادة فان كليف ألهامبرا" },
+        description: {
+            ar: "قلادة بتصميم البرسيم الرباعي، جالبة للحظ والأناقة.",
+            en: "Necklace with four-leaf clover design, bringing luck and elegance."
+        },
+        price: 3200.0, brand: "Van Cleef & Arpels", dimensions: "Standard", category: "jewelry",
+        imageUrl: "https://images.unsplash.com/photo-1599643478518-17488fbbcd75?auto=format&fit=crop&q=80&w=800",
+        images: [
+            "https://images.unsplash.com/photo-1599643478518-17488fbbcd75?auto=format&fit=crop&q=80&w=800"
+        ]
     }
 ];
 
@@ -150,17 +188,35 @@ const banners = [
     { 
         title: { ar: "عالم الحقائب الكلاسيكية", en: "World of Classic Bags" }, 
         imageUrl: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&q=80&w=1200", 
-        buttonText: { ar: "اكتشفي الآن", en: "Discover Now" } 
+        buttonText: { ar: "اكتشفي الآن", en: "Discover Now" },
+        location: 'home'
     },
     { 
         title: { ar: "ساعات تليق بمقامك", en: "Watches for Your Stature" }, 
         imageUrl: "https://images.unsplash.com/photo-1524592094714-0f0654e20314?auto=format&fit=crop&q=80&w=1200", 
-        buttonText: { ar: "شاهد التشكيلة", en: "View Collection" } 
+        buttonText: { ar: "شاهد التشكيلة", en: "View Collection" },
+        location: 'home'
     },
     { 
         title: { ar: "خصومات الشتاء بدأت", en: "Winter Sale Started" }, 
         imageUrl: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&q=80&w=1200", 
-        buttonText: { ar: "عرض العروض", en: "View Offers" } 
+        buttonText: { ar: "عرض العروض", en: "View Offers" },
+        location: 'home'
+    },
+    // إعلانات خاصة بالكاتيجوري (سنربطها بالكود لاحقاً)
+    {
+        title: { ar: "أحدث موديلات الحقائب", en: "Latest Bag Models" },
+        imageUrl: "https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&q=80&w=1200",
+        buttonText: { ar: "تسوقي الحقائب", en: "Shop Bags" },
+        location: 'category',
+        categorySlug: 'bags'
+    },
+    {
+        title: { ar: "ساعات فاخرة", en: "Luxury Watches" },
+        imageUrl: "https://images.unsplash.com/photo-1614164185128-e4ec99c436d7?auto=format&fit=crop&q=80&w=1200",
+        buttonText: { ar: "تصفح الساعات", en: "Browse Watches" },
+        location: 'category',
+        categorySlug: 'watches'
     }
 ];
 
@@ -175,6 +231,16 @@ const categories = [
         name: { ar: "ساعات", en: "Watches" },
         slug: "watches",
         imageUrl: "https://images.unsplash.com/photo-1523170335258-f5ed11844a49?auto=format&fit=crop&q=80&w=800"
+    },
+    {
+        name: { ar: "أحذية", en: "Shoes" },
+        slug: "shoes",
+        imageUrl: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=800"
+    },
+    {
+        name: { ar: "مجوهرات", en: "Jewelry" },
+        slug: "jewelry",
+        imageUrl: "https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?auto=format&fit=crop&q=80&w=800"
     }
 ];
 
@@ -188,9 +254,11 @@ async function seedDatabase() {
         await Category.deleteMany({});
         console.log('🗑️ Old data cleared');
 
+        let createdCategories = [];
         // 1. إدراج التصنيفات الأساسية (المعرفة مسبقاً)
         for (const catData of categories) {
-            await new Category(catData).save();
+            const cat = await new Category(catData).save();
+            createdCategories.push(cat);
         }
         console.log('📂 Inserted predefined categories');
 
@@ -210,6 +278,7 @@ async function seedDatabase() {
                     imageUrl: "https://placehold.co/600x400?text=" + categorySlug // صورة افتراضية
                 });
                 await category.save();
+                createdCategories.push(category);
             }
 
             // إنشاء المنتج وربطه بالـ ID
@@ -222,8 +291,17 @@ async function seedDatabase() {
         
         console.log(`✨ Inserted ${luxuryProducts.length} products (some with auto-created categories)`);
 
-        await Banner.insertMany(banners);
-        console.log('📸 Inserted 3 active banners');
+        // 3. إدراج الإعلانات (مع ربط إعلانات الكاتيجوري)
+        const bannersToInsert = banners.map(b => {
+            if (b.location === 'category' && b.categorySlug) {
+                const cat = createdCategories.find(c => c.slug === b.categorySlug);
+                if (cat) return { ...b, category: cat._id };
+            }
+            return b;
+        });
+
+        await Banner.insertMany(bannersToInsert);
+        console.log(`📸 Inserted ${bannersToInsert.length} banners (Home & Category specific)`);
 
     } catch (err) { console.error('❌ Error:', err); } 
     finally { mongoose.connection.close(); }
