@@ -35,7 +35,7 @@ const productSchema = new mongoose.Schema({
     dimensions: String,
     imageUrl: { type: String, required: true }, // الصورة الأساسية
     images: [String], // قائمة الصور (الصورة الثانية تستخدم للـ Hover في Flutter)
-    category: { type: String, default: 'unlisted' },
+    category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', required: true },
     isSoldOut: { type: Boolean, default: false },
     featured: { type: Boolean, default: false }
 }, { timestamps: true });
@@ -58,6 +58,18 @@ const bannerSchema = new mongoose.Schema({
 
 const Banner = mongoose.model('Banner', bannerSchema);
 
+// قالب التصنيفات (Categories)
+const categorySchema = new mongoose.Schema({
+    name: { 
+        ar: { type: String, required: true },
+        en: { type: String, required: true }
+    },
+    slug: { type: String, required: true, unique: true }, // للربط مع المنتجات (مثلاً: bags)
+    imageUrl: { type: String, required: true }
+}, { timestamps: true });
+
+const Category = mongoose.model('Category', categorySchema);
+
 // 4. الروابط (Routes)
 
 // --- روابط المنتجات (CRUD Operations) ---
@@ -66,8 +78,17 @@ const Banner = mongoose.model('Banner', bannerSchema);
 app.get('/api/products', async (req, res) => {
     try {
         const { category } = req.query;
-        const query = category ? { category } : {};
-        const products = await Product.find(query).sort({ createdAt: -1 });
+        let query = {};
+
+        if (category) {
+            const categoryDoc = await Category.findOne({ slug: category });
+            if (!categoryDoc) return res.status(200).json([]); // إذا لم يوجد التصنيف، أعد قائمة فارغة
+            query.category = categoryDoc._id;
+        }
+
+        const products = await Product.find(query)
+            .sort({ createdAt: -1 })
+            .populate('category'); // جلب تفاصيل التصنيف مع المنتج
         res.status(200).json(products);
     } catch (err) {
         res.status(500).json({ message: "خطأ في جلب البيانات", error: err.message });
@@ -77,7 +98,7 @@ app.get('/api/products', async (req, res) => {
 // جلب منتج واحد بالتفصيل
 app.get('/api/products/:id', async (req, res) => {
     try {
-        const product = await Product.findById(req.params.id);
+        const product = await Product.findById(req.params.id).populate('category');
         if (!product) return res.status(404).json({ message: "المنتج غير موجود" });
         res.json(product);
     } catch (err) {
@@ -88,7 +109,53 @@ app.get('/api/products/:id', async (req, res) => {
 // إضافة منتج جديد
 app.post('/api/products', async (req, res) => {
     try {
-        const newProduct = new Product(req.body);
+        let categoryId;
+        const { category } = req.body;
+
+        // منطق ذكي للتعامل مع التصنيف (Category)
+        if (category && typeof category === 'object' && category.slug) {
+            // 1. إذا تم إرسال كائن تصنيف كامل (لإنشاء تصنيف مخصص فوراً)
+            let existingCategory = await Category.findOne({ slug: category.slug });
+            if (existingCategory) {
+                categoryId = existingCategory._id;
+            } else {
+                const newCategory = new Category({
+                    imageUrl: "https://placehold.co/600x400?text=Category", // صورة افتراضية
+                    ...category
+                });
+                const savedCategory = await newCategory.save();
+                categoryId = savedCategory._id;
+            }
+        } else if (typeof category === 'string') {
+            // 2. إذا تم إرسال نص (ID أو اسم التصنيف)
+            // أ) التحقق مما إذا كان ID صالح وموجود مسبقاً
+            if (mongoose.Types.ObjectId.isValid(category)) {
+                const exists = await Category.exists({ _id: category });
+                if (exists) categoryId = category;
+            }
+
+            // ب) إذا لم يكن ID، نعامله كاسم/Slug وننشئه تلقائياً إذا لم يوجد
+            if (!categoryId) {
+                const slug = category.trim().toLowerCase().replace(/\s+/g, '-');
+                let existingCategory = await Category.findOne({ slug });
+                
+                if (existingCategory) {
+                    categoryId = existingCategory._id;
+                } else {
+                    // إنشاء تصنيف جديد تلقائياً
+                    const newCategory = new Category({
+                        name: { ar: category, en: category }, // نستخدم نفس الاسم للغتين مؤقتاً
+                        slug: slug,
+                        imageUrl: "https://placehold.co/600x400?text=New+Category"
+                    });
+                    const savedCategory = await newCategory.save();
+                    categoryId = savedCategory._id;
+                }
+            }
+        }
+
+        // إنشاء المنتج مع ربط الـ ID الصحيح للتصنيف
+        const newProduct = new Product({ ...req.body, category: categoryId });
         const savedProduct = await newProduct.save();
         res.status(201).json(savedProduct);
     } catch (err) {
@@ -143,6 +210,27 @@ app.delete('/api/banners/:id', async (req, res) => {
         res.json({ message: "تم حذف الإعلان" });
     } catch (err) {
         res.status(500).json({ message: "خطأ في الحذف" });
+    }
+});
+
+// --- روابط التصنيفات (Categories) ---
+
+app.get('/api/categories', async (req, res) => {
+    try {
+        const categories = await Category.find();
+        res.status(200).json(categories);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في جلب التصنيفات" });
+    }
+});
+
+app.post('/api/categories', async (req, res) => {
+    try {
+        const newCategory = new Category(req.body);
+        const savedCategory = await newCategory.save();
+        res.status(201).json(savedCategory);
+    } catch (err) {
+        res.status(400).json({ message: "فشل إضافة التصنيف" });
     }
 });
 

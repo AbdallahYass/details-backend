@@ -16,7 +16,7 @@ const productSchema = new mongoose.Schema({
     dimensions: String,
     imageUrl: { type: String, required: true },
     images: [String],
-    category: { type: String, default: 'bags' },
+    category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', required: true },
     isSoldOut: { type: Boolean, default: false },
     featured: { type: Boolean, default: false }
 }, { timestamps: true });
@@ -36,6 +36,17 @@ const bannerSchema = new mongoose.Schema({
 });
 
 const Banner = mongoose.model('Banner', bannerSchema);
+
+const categorySchema = new mongoose.Schema({
+    name: { 
+        ar: { type: String, required: true },
+        en: { type: String, required: true }
+    },
+    slug: { type: String, required: true, unique: true },
+    imageUrl: { type: String, required: true }
+});
+
+const Category = mongoose.model('Category', categorySchema);
 
 // 2. الاتصال (MongoDB Atlas)
 const dbURI = "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/?appName=DetailsCluster";
@@ -141,6 +152,20 @@ const banners = [
     }
 ];
 
+// 5. التصنيفات (Categories)
+const categories = [
+    {
+        name: { ar: "حقائب", en: "Bags" },
+        slug: "bags",
+        imageUrl: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&q=80&w=800"
+    },
+    {
+        name: { ar: "ساعات", en: "Watches" },
+        slug: "watches",
+        imageUrl: "https://images.unsplash.com/photo-1523170335258-f5ed11844a49?auto=format&fit=crop&q=80&w=800"
+    }
+];
+
 async function seedDatabase() {
     try {
         await mongoose.connect(dbURI);
@@ -148,10 +173,21 @@ async function seedDatabase() {
 
         await Product.deleteMany({});
         await Banner.deleteMany({});
+        await Category.deleteMany({});
         console.log('🗑️ Old data cleared');
 
-        await Product.insertMany(luxuryProducts);
-        console.log(`✨ Inserted 10 products with Hover images`);
+        // 1. إدراج التصنيفات أولاً للحصول على IDs
+        const createdCategories = await Category.insertMany(categories);
+        console.log('📂 Inserted categories');
+
+        // 2. ربط المنتجات بالـ IDs الخاصة بالتصنيفات
+        const productsWithCategoryIds = luxuryProducts.map(product => {
+            const category = createdCategories.find(c => c.slug === product.category);
+            return { ...product, category: category._id };
+        });
+
+        await Product.insertMany(productsWithCategoryIds);
+        console.log(`✨ Inserted ${productsWithCategoryIds.length} products with linked categories`);
 
         await Banner.insertMany(banners);
         console.log('📸 Inserted 3 active banners');
