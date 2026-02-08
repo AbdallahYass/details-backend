@@ -72,6 +72,14 @@ const categorySchema = new mongoose.Schema({
 
 const Category = mongoose.model('Category', categorySchema);
 
+// قالب المفضلة (Wishlist)
+const wishlistSchema = new mongoose.Schema({
+    userId: { type: String, required: true }, // معرف المستخدم أو الجهاز
+    products: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }]
+}, { timestamps: true });
+
+const Wishlist = mongoose.model('Wishlist', wishlistSchema);
+
 // 4. الروابط (Routes)
 
 // --- روابط المنتجات (CRUD Operations) ---
@@ -246,6 +254,46 @@ app.post('/api/categories', async (req, res) => {
         res.status(201).json(savedCategory);
     } catch (err) {
         res.status(400).json({ message: "فشل إضافة التصنيف" });
+    }
+});
+
+// --- روابط المفضلة (Wishlist) ---
+
+// جلب قائمة المفضلة لمستخدم معين
+app.get('/api/wishlist/:userId', async (req, res) => {
+    try {
+        const wishlist = await Wishlist.findOne({ userId: req.params.userId }).populate('products');
+        res.status(200).json(wishlist ? wishlist.products : []);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في جلب المفضلة" });
+    }
+});
+
+// إضافة أو إزالة منتج من المفضلة (Toggle)
+app.post('/api/wishlist', async (req, res) => {
+    try {
+        const { userId, productId } = req.body;
+        
+        let wishlist = await Wishlist.findOne({ userId });
+        if (!wishlist) {
+            wishlist = new Wishlist({ userId, products: [] });
+        }
+
+        // التحقق: إذا كان المنتج موجوداً نحذفه، وإذا لم يكن موجوداً نضيفه
+        const index = wishlist.products.indexOf(productId);
+        if (index === -1) {
+            wishlist.products.push(productId);
+        } else {
+            wishlist.products.splice(index, 1);
+        }
+
+        await wishlist.save();
+        
+        // إرجاع القائمة المحدثة بالكامل
+        const updatedWishlist = await wishlist.populate('products');
+        res.status(200).json(updatedWishlist.products);
+    } catch (err) {
+        res.status(400).json({ message: "فشل تحديث المفضلة" });
     }
 });
 

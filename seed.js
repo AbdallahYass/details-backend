@@ -50,6 +50,12 @@ const categorySchema = new mongoose.Schema({
 
 const Category = mongoose.model('Category', categorySchema);
 
+const wishlistSchema = new mongoose.Schema({
+    userId: { type: String, required: true },
+    products: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }]
+});
+const Wishlist = mongoose.model('Wishlist', wishlistSchema);
+
 // 2. الاتصال (MongoDB Atlas)
 const dbURI = "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/?appName=DetailsCluster";
 
@@ -252,6 +258,7 @@ async function seedDatabase() {
         await Product.deleteMany({});
         await Banner.deleteMany({});
         await Category.deleteMany({});
+        await Wishlist.deleteMany({});
         console.log('🗑️ Old data cleared');
 
         let createdCategories = [];
