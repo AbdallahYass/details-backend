@@ -2,16 +2,45 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
+const hpp = require('hpp');
+const morgan = require('morgan');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // 1. Middleware
+app.use(helmet()); // إضافة ترويسات أمان HTTP لحماية التطبيق
+app.use(morgan('dev')); // تسجيل الطلبات (Logging) لمراقبة النشاط وكشف الأخطاء
 app.use(cors()); 
-app.use(express.json());
+app.use(express.json({ limit: '10kb' })); // تحديد حجم البيانات المستقبلة لمنع إغراق السيرفر
+app.use(mongoSanitize()); // تنظيف البيانات المدخلة لمنع هجمات NoSQL Injection
+app.use(xss()); // تنظيف البيانات من أكواد HTML/JS الخبيثة (XSS)
+app.use(hpp()); // منع تلوث المعاملات (HTTP Parameter Pollution)
+
+// حماية عامة: تحديد عدد الطلبات لكل IP (Rate Limiting)
+const globalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 دقيقة
+    max: 100, // 100 طلب كحد أقصى لكل IP
+    message: { message: "تم تجاوز عدد الطلبات المسموح به، يرجى المحاولة لاحقاً" }
+});
+app.use('/api', globalLimiter);
+
+// حماية خاصة لتسجيل الدخول وإنشاء الحساب (Brute Force Protection)
+const authLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // ساعة واحدة
+    max: 10, // 10 محاولات فقط لكل IP
+    message: { message: "محاولات دخول كثيرة جداً، يرجى الانتظار لمدة ساعة" }
+});
+app.use('/api/auth', authLimiter);
 
 // 2. الاتصال بقاعدة البيانات (MongoDB Atlas)
-const dbURI = process.env.MONGODB_URI || "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/?appName=DetailsCluster";
+const dbURI = process.env.MONGODB_URI;
 
 mongoose.connect(dbURI)
     .then(() => console.log('✅ Connected to Details Store Database'))
@@ -80,25 +109,92 @@ const wishlistSchema = new mongoose.Schema({
 
 const Wishlist = mongoose.model('Wishlist', wishlistSchema);
 
+// قالب المستخدمين (Users)
+const userSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+    phone: String,
+    isAdmin: { type: Boolean, default: false }
+}, { timestamps: true });
+
+const User = mongoose.model('User', userSchema);
+
+// قالب الطلبات (Orders)
+const orderSchema = new mongoose.Schema({
+    userId: { type: String, required: true },
+    products: [{
+        id: String,
+        title: String,
+        quantity: Number,
+        price: Number,
+        imageUrl: String
+    }],
+    amount: { type: Number, required: true },
+    shippingAddress: {
+        city: String,
+        street: String,
+        phone: String
+    },
+    status: { 
+        type: String, 
+        enum: ['قيد التجهيز', 'تم الشحن', 'تم التوصيل', 'ملغي'], 
+        default: 'قيد التجهيز' 
+    }
+}, { timestamps: true });
+
+const Order = mongoose.model('Order', orderSchema);
+
+// --- Middleware للحماية (Authentication & Authorization) ---
+
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) return res.status(401).json({ message: "يرجى تسجيل الدخول أولاً" });
+
+    jwt.verify(token, process.env.JWT_SECRET || 'SecretKey123', (err, user) => {
+        if (err) return res.status(403).json({ message: "الجلسة انتهت، يرجى إعادة تسجيل الدخول" });
+        req.user = user;
+        next();
+    });
+};
+
+const isAdmin = (req, res, next) => {
+    if (req.user && req.user.isAdmin) {
+        next();
+    } else {
+        res.status(403).json({ message: "هذا الإجراء مخصص للمسؤولين فقط" });
+    }
+};
+
 // 4. الروابط (Routes)
 
 // --- روابط المنتجات (CRUD Operations) ---
 
-// جلب الكل
+// جلب الكل (مع دعم البحث والتصنيف)
 app.get('/api/products', async (req, res) => {
     try {
-        const { category } = req.query;
+        const { category, search } = req.query;
         let query = {};
 
+        // تصفية حسب التصنيف
         if (category) {
             const categoryDoc = await Category.findOne({ slug: category });
-            if (!categoryDoc) return res.status(200).json([]); // إذا لم يوجد التصنيف، أعد قائمة فارغة
+            if (!categoryDoc) return res.status(200).json([]);
             query.category = categoryDoc._id;
+        }
+
+        // تصفية حسب البحث (بالاسم العربي أو الإنجليزي)
+        if (search) {
+            query.$or = [
+                { 'name.ar': { $regex: search, $options: 'i' } },
+                { 'name.en': { $regex: search, $options: 'i' } }
+            ];
         }
 
         const products = await Product.find(query)
             .sort({ createdAt: -1 })
-            .populate('category'); // جلب تفاصيل التصنيف مع المنتج
+            .populate('category');
         res.status(200).json(products);
     } catch (err) {
         res.status(500).json({ message: "خطأ في جلب البيانات", error: err.message });
@@ -117,7 +213,7 @@ app.get('/api/products/:id', async (req, res) => {
 });
 
 // إضافة منتج جديد
-app.post('/api/products', async (req, res) => {
+app.post('/api/products', authenticateToken, isAdmin, async (req, res) => {
     try {
         let categoryId;
         const { category } = req.body;
@@ -174,7 +270,7 @@ app.post('/api/products', async (req, res) => {
 });
 
 // تعديل منتج (مهم للوحة التحكم)
-app.put('/api/products/:id', async (req, res) => {
+app.put('/api/products/:id', authenticateToken, isAdmin, async (req, res) => {
     try {
         const updatedProduct = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true });
         res.json(updatedProduct);
@@ -184,7 +280,7 @@ app.put('/api/products/:id', async (req, res) => {
 });
 
 // حذف منتج
-app.delete('/api/products/:id', async (req, res) => {
+app.delete('/api/products/:id', authenticateToken, isAdmin, async (req, res) => {
     try {
         await Product.findByIdAndDelete(req.params.id);
         res.json({ message: "تم حذف المنتج بنجاح" });
@@ -217,7 +313,7 @@ app.get('/api/banners', async (req, res) => {
     }
 });
 
-app.post('/api/banners', async (req, res) => {
+app.post('/api/banners', authenticateToken, isAdmin, async (req, res) => {
     try {
         const newBanner = new Banner(req.body);
         const savedBanner = await newBanner.save();
@@ -227,7 +323,7 @@ app.post('/api/banners', async (req, res) => {
     }
 });
 
-app.delete('/api/banners/:id', async (req, res) => {
+app.delete('/api/banners/:id', authenticateToken, isAdmin, async (req, res) => {
     try {
         await Banner.findByIdAndDelete(req.params.id);
         res.json({ message: "تم حذف الإعلان" });
@@ -247,7 +343,7 @@ app.get('/api/categories', async (req, res) => {
     }
 });
 
-app.post('/api/categories', async (req, res) => {
+app.post('/api/categories', authenticateToken, isAdmin, async (req, res) => {
     try {
         const newCategory = new Category(req.body);
         const savedCategory = await newCategory.save();
@@ -259,10 +355,10 @@ app.post('/api/categories', async (req, res) => {
 
 // --- روابط المفضلة (Wishlist) ---
 
-// جلب قائمة المفضلة لمستخدم معين
-app.get('/api/wishlist/:userId', async (req, res) => {
+// جلب قائمة المفضلة للمستخدم الحالي (المسجل دخوله)
+app.get('/api/wishlist', authenticateToken, async (req, res) => {
     try {
-        const wishlist = await Wishlist.findOne({ userId: req.params.userId }).populate('products');
+        const wishlist = await Wishlist.findOne({ userId: req.user.id }).populate('products');
         res.status(200).json(wishlist ? wishlist.products : []);
     } catch (err) {
         res.status(500).json({ message: "خطأ في جلب المفضلة" });
@@ -270,9 +366,10 @@ app.get('/api/wishlist/:userId', async (req, res) => {
 });
 
 // إضافة أو إزالة منتج من المفضلة (Toggle)
-app.post('/api/wishlist', async (req, res) => {
+app.post('/api/wishlist', authenticateToken, async (req, res) => {
     try {
-        const { userId, productId } = req.body;
+        const { productId } = req.body;
+        const userId = req.user.id; // الحصول على معرف المستخدم من التوكن
         
         let wishlist = await Wishlist.findOne({ userId });
         if (!wishlist) {
@@ -294,6 +391,103 @@ app.post('/api/wishlist', async (req, res) => {
         res.status(200).json(updatedWishlist.products);
     } catch (err) {
         res.status(400).json({ message: "فشل تحديث المفضلة" });
+    }
+});
+
+// --- روابط المصادقة (Authentication) ---
+
+// تسجيل حساب جديد
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { name, email, password, phone } = req.body;
+        
+        // حماية: التحقق من قوة كلمة المرور (مثلاً 6 أحرف على الأقل)
+        if (!password || password.length < 6) return res.status(400).json({ message: "كلمة المرور يجب أن تكون 6 أحرف على الأقل" });
+
+        const existingUser = await User.findOne({ email });
+        if (existingUser) return res.status(400).json({ message: "البريد الإلكتروني مسجل مسبقاً" });
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        const newUser = new User({
+            name, 
+            email, 
+            password: hashedPassword, 
+            phone
+        });
+        
+        await newUser.save();
+        res.status(201).json({ message: "تم إنشاء الحساب بنجاح" });
+    } catch (err) {
+        console.error("Register Error:", err); // تسجيل الخطأ في السيرفر فقط للمطور
+        res.status(500).json({ message: "خطأ في إنشاء الحساب" }); // حماية: عدم إرسال تفاصيل الخطأ التقنية للمستخدم
+    }
+});
+
+// تسجيل الدخول
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        const user = await User.findOne({ email });
+        if (!user) return res.status(400).json({ message: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
+
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) return res.status(400).json({ message: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
+
+        const token = jwt.sign({ id: user._id, isAdmin: user.isAdmin }, process.env.JWT_SECRET || 'SecretKey123', { expiresIn: '7d' });
+
+        res.json({ 
+            token, 
+            user: { id: user._id, name: user.name, email: user.email, isAdmin: user.isAdmin } 
+        });
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في تسجيل الدخول" });
+    }
+});
+
+// التحقق من صحة التوكن (للدخول التلقائي)
+app.get('/api/auth/validate-token', authenticateToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id).select('-password');
+        if (!user) return res.status(404).json({ message: "المستخدم غير موجود" });
+        
+        res.json({ 
+            valid: true, 
+            user: { id: user._id, name: user.name, email: user.email, isAdmin: user.isAdmin } 
+        });
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في التحقق" });
+    }
+});
+
+// --- روابط الطلبات (Orders) ---
+
+// إنشاء طلب جديد
+app.post('/api/orders', authenticateToken, async (req, res) => {
+    try {
+        const { products, amount, shippingAddress } = req.body;
+        
+        const newOrder = new Order({
+            userId: req.user.id,
+            products,
+            amount,
+            shippingAddress
+        });
+
+        const savedOrder = await newOrder.save();
+        res.status(201).json(savedOrder);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في إنشاء الطلب", error: err.message });
+    }
+});
+
+// جلب طلبات المستخدم
+app.get('/api/orders', authenticateToken, async (req, res) => {
+    try {
+        const orders = await Order.find({ userId: req.user.id }).sort({ createdAt: -1 });
+        res.status(200).json(orders);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في جلب الطلبات" });
     }
 });
 
