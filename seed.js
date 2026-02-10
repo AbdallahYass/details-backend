@@ -57,7 +57,7 @@ const wishlistSchema = new mongoose.Schema({
 const Wishlist = mongoose.model('Wishlist', wishlistSchema);
 
 // 2. الاتصال (MongoDB Atlas)
-const dbURI = "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/?appName=DetailsCluster";
+const dbURI = "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/DetailsStoreDB?appName=DetailsCluster";
 
 // 3. بيانات 10 أصناف (صور مختارة بعناية لتظهر فوراً)
 const luxuryProducts = [
