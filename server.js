@@ -129,7 +129,7 @@ const authenticateToken = (req, res, next) => {
     const token = authHeader && authHeader.split(' ')[1];
     if (!token) return res.status(401).json({ message: "يرجى تسجيل الدخول أولاً" });
 
-    jwt.verify(token, process.env.JWT_SECRET || 'SecretKey123', (err, user) => {
+    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
         if (err) return res.status(403).json({ message: "الجلسة انتهت" });
         req.user = user;
         next();
@@ -180,13 +180,12 @@ app.post('/api/auth/login', async (req, res) => {
         if (!user || !(await bcrypt.compare(password, user.password))) {
             return res.status(400).json({ message: "البيانات غير صحيحة" });
         }
-        const token = jwt.sign({ id: user._id, isAdmin: user.isAdmin }, process.env.JWT_SECRET || 'SecretKey123', { expiresIn: '7d' });
+        const token = jwt.sign({ id: user._id, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn: '7d' });
         res.json({ token, user: { name: user.name, email: user.email, isAdmin: user.isAdmin } });
     } catch (err) { res.status(500).json({ message: "خطأ في تسجيل الدخول" }); }
 });
 
-// --- 7. تشغيل السيرفر ---
-// الاستماع على 0.0.0.0 ضروري لبيئة Render
+
 app.listen(PORT, () => {
     console.log(`🚀 Details Backend is Live on Port: ${PORT}`);
 });
