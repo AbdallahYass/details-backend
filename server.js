@@ -492,7 +492,6 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 });
 
 // 5. تشغيل السيرفر
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+    console.log(`🚀 Details Backend is running on port: ${PORT}`);
 });
