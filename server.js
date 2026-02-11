@@ -141,7 +141,7 @@ app.get('/api/products', async (req, res) => {
         let query = {};
 
         if (category) {
-            const categoryDoc = await Category.findOne({ slug: category });
+            const categoryDoc = await Category.findOne({ slug: category }).lean();
             if (!categoryDoc) return res.status(200).json([]);
             query.category = categoryDoc._id;
         }
@@ -153,7 +153,10 @@ app.get('/api/products', async (req, res) => {
             ];
         }
 
-        let productsQuery = Product.find(query).populate('category');
+        // تحسين الأداء: استخدام lean() وتحديد حقول populate
+        let productsQuery = Product.find(query)
+            .populate('category', 'name slug imageUrl') // جلب البيانات الضرورية فقط
+            .lean();
 
         // منطق الترتيب
         if (sort === 'popular') {
