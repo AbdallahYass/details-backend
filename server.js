@@ -136,6 +136,11 @@ const orderSchema = new mongoose.Schema({
         street: String,
         phone: String
     },
+    paymentMethod: { 
+        type: String, 
+        enum: ['cod', 'card'], 
+        default: 'cod' 
+    },
     status: { 
         type: String, 
         enum: ['قيد التجهيز', 'تم الشحن', 'تم التوصيل', 'ملغي'], 
@@ -467,13 +472,14 @@ app.get('/api/auth/validate-token', authenticateToken, async (req, res) => {
 // إنشاء طلب جديد
 app.post('/api/orders', authenticateToken, async (req, res) => {
     try {
-        const { products, amount, shippingAddress } = req.body;
+        const { products, amount, shippingAddress, payment_method } = req.body;
         
         const newOrder = new Order({
             userId: req.user.id,
             products,
             amount,
-            shippingAddress
+            shippingAddress,
+            paymentMethod: payment_method
         });
 
         const savedOrder = await newOrder.save();
