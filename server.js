@@ -65,6 +65,11 @@ const productSchema = new mongoose.Schema({
     popularity: { type: Number, default: 0 } // ✅ الحقل الجديد
 }, { timestamps: true });
 
+// تحسين الأداء: إضافة فهارس (Indexes) لتسريع عمليات البحث والترتيب
+productSchema.index({ popularity: -1 }); // تسريع الترتيب حسب الأكثر شعبية
+productSchema.index({ createdAt: -1 });  // تسريع الترتيب حسب الأحدث
+productSchema.index({ category: 1 });    // تسريع الفلترة حسب القسم
+
 const Product = mongoose.model('Product', productSchema);
 
 // ... (باقي الـ Schemas كما هي: Banner, Category, Wishlist, User) ...
