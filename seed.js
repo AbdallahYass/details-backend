@@ -611,7 +611,8 @@ async function seedDatabase() {
                         },
                         price: i >= templates.length ? template.price + (i * 2) : template.price,
                         category: cat._id,
-                        featured: i === 0 ? true : (template.featured && i < templates.length)
+                        featured: i === 0 ? true : (template.featured && i < templates.length),
+                        popularity: Math.floor(Math.random() * 500) // إضافة شعبية عشوائية للعرض
                     };
                     
                     productsToInsert.push(newProduct);
