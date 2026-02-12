@@ -36,7 +36,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // حماية عامة: تحديد عدد الطلبات لكل IP (Rate Limiting)
 const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 دقيقة
-    max: 100, // 100 طلب كحد أقصى لكل IP
+    max: 2000, // زيادة الحد إلى 2000 طلب أثناء التطوير
     message: { message: "تم تجاوز عدد الطلبات المسموح به، يرجى المحاولة لاحقاً" }
 });
 app.use('/api', globalLimiter);
@@ -44,7 +44,7 @@ app.use('/api', globalLimiter);
 // حماية خاصة لتسجيل الدخول وإنشاء الحساب (Brute Force Protection)
 const authLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // ساعة واحدة
-    max: 10, // 10 محاولات فقط لكل IP
+    max: 100, // زيادة الحد إلى 100 محاولة
     message: { message: "محاولات دخول كثيرة جداً، يرجى الانتظار لمدة ساعة" }
 });
 app.use('/api/auth', authLimiter);

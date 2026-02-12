@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
 // 1. الموديلات (Schemas)
 const productSchema = new mongoose.Schema({
@@ -56,6 +57,17 @@ const wishlistSchema = new mongoose.Schema({
     products: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }]
 });
 const Wishlist = mongoose.model('Wishlist', wishlistSchema);
+
+// قالب المستخدمين (Users)
+const userSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+    phone: String,
+    isAdmin: { type: Boolean, default: false }
+}, { timestamps: true });
+
+const User = mongoose.model('User', userSchema);
 
 // 2. الاتصال (MongoDB Atlas)
 const dbURI = "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/DetailsStoreDB?appName=DetailsCluster";
@@ -573,6 +585,7 @@ async function seedDatabase() {
         await Banner.deleteMany({});
         await Category.deleteMany({});
         await Wishlist.deleteMany({});
+        await User.deleteMany({});
         console.log('🗑️ Old data cleared');
 
         let createdCategories = [];
@@ -636,6 +649,18 @@ async function seedDatabase() {
 
         await Banner.insertMany(bannersToInsert);
         console.log(`📸 Inserted ${bannersToInsert.length} banners (Home & Category specific)`);
+
+        // 4. إضافة مستخدم أدمن
+        const hashedPassword = await bcrypt.hash("123456", 10);
+        const adminUser = new User({
+            name: "Admin User",
+            email: "admin@details.com",
+            password: hashedPassword,
+            phone: "0790000000",
+            isAdmin: true
+        });
+        await adminUser.save();
+        console.log('👤 Admin user created: admin@details.com / 123456');
 
     } catch (err) { console.error('❌ Error:', err); } finally { mongoose.connection.close(); }
 }
