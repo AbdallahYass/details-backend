@@ -36,7 +36,6 @@ const bannerSchema = new mongoose.Schema({
     },
     location: { type: String, enum: ['home', 'category'], default: 'home' },
     category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' }
-});
 }, { timestamps: true });
 
 const Banner = mongoose.model('Banner', bannerSchema);
@@ -48,7 +47,6 @@ const categorySchema = new mongoose.Schema({
     },
     slug: { type: String, required: true, unique: true },
     imageUrl: { type: String, required: true }
-});
 }, { timestamps: true });
 
 const Category = mongoose.model('Category', categorySchema);
