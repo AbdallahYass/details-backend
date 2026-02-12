@@ -21,7 +21,7 @@ const PORT = process.env.PORT || 3000;
 app.use(helmet()); // إضافة ترويسات أمان HTTP لحماية التطبيق
 app.use(morgan('dev')); // تسجيل الطلبات (Logging) لمراقبة النشاط وكشف الأخطاء
 app.use(cors()); 
-app.use(express.json({ limit: '10kb' })); // تحديد حجم البيانات المستقبلة لمنع إغراق السيرفر
+app.use(express.json({ limit: '1mb' })); // تحديد حجم البيانات المستقبلة لمنع إغراق السيرفر
 app.use(mongoSanitize()); // تنظيف البيانات المدخلة لمنع هجمات NoSQL Injection
 app.use(xss()); // تنظيف البيانات من أكواد HTML/JS الخبيثة (XSS)
 app.use(hpp()); // منع تلوث المعاملات (HTTP Parameter Pollution)
@@ -76,7 +76,8 @@ const productSchema = new mongoose.Schema({
     images: [String], // قائمة الصور (الصورة الثانية تستخدم للـ Hover في Flutter)
     category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', required: true },
     isSoldOut: { type: Boolean, default: false },
-    featured: { type: Boolean, default: false }
+    featured: { type: Boolean, default: false },
+    popularity: { type: Number, default: 0 }
 }, { timestamps: true });
 
 const Product = mongoose.model('Product', productSchema);
@@ -309,30 +310,45 @@ app.post('/api/products', authenticateToken, isAdmin, async (req, res) => {
             }
         } else if (typeof category === 'string') {
             // 2. إذا تم إرسال نص (ID أو اسم التصنيف)
+            const categoryInput = category.trim();
+
             // أ) التحقق مما إذا كان ID صالح وموجود مسبقاً
-            if (mongoose.Types.ObjectId.isValid(category)) {
-                const exists = await Category.exists({ _id: category });
-                if (exists) categoryId = category;
+            if (mongoose.Types.ObjectId.isValid(categoryInput)) {
+                const exists = await Category.exists({ _id: categoryInput });
+                if (exists) categoryId = categoryInput;
             }
 
             // ب) إذا لم يكن ID، نعامله كاسم/Slug وننشئه تلقائياً إذا لم يوجد
             if (!categoryId) {
-                const slug = category.trim().toLowerCase().replace(/\s+/g, '-');
-                let existingCategory = await Category.findOne({ slug });
+                const slug = categoryInput.toLowerCase().replace(/\s+/g, '-');
+                
+                // البحث عن التصنيف بالاسم أو الـ Slug لتجنب التكرار
+                let existingCategory = await Category.findOne({
+                    $or: [
+                        { slug: slug },
+                        { 'name.ar': categoryInput },
+                        { 'name.en': { $regex: new RegExp(`^${categoryInput}$`, 'i') } }
+                    ]
+                });
                 
                 if (existingCategory) {
                     categoryId = existingCategory._id;
                 } else {
                     // إنشاء تصنيف جديد تلقائياً
                     const newCategory = new Category({
-                        name: { ar: category, en: category }, // نستخدم نفس الاسم للغتين مؤقتاً
+                        name: { ar: categoryInput, en: categoryInput }, // نستخدم نفس الاسم للغتين مؤقتاً
                         slug: slug,
-                        imageUrl: "https://placehold.co/600x400?text=New+Category"
+                        imageUrl: `https://placehold.co/600x400?text=${encodeURIComponent(categoryInput)}`
                     });
                     const savedCategory = await newCategory.save();
                     categoryId = savedCategory._id;
                 }
             }
+        }
+
+        // تحقق أمان إضافي: التأكد من وجود ID للتصنيف قبل الحفظ
+        if (!categoryId) {
+            return res.status(400).json({ message: "التصنيف مطلوب (Category is required)" });
         }
 
         // إنشاء المنتج مع ربط الـ ID الصحيح للتصنيف
@@ -772,7 +788,7 @@ app.get('/api/admin/users', authenticateToken, isAdmin, async (req, res) => {
 });
 
 // حذف مستخدم (للأدمن)
-app.delete('/api/users/:id', authenticateToken, isAdmin, async (req, res) => {
+app.delete('/api/admin/users/:id', authenticateToken, isAdmin, async (req, res) => {
     try {
         await User.findByIdAndDelete(req.params.id);
         res.json({ message: "تم حذف المستخدم بنجاح" });
