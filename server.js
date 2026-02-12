@@ -10,6 +10,9 @@ const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss-clean');
 const hpp = require('hpp');
 const morgan = require('morgan');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,6 +25,13 @@ app.use(express.json({ limit: '10kb' })); // تحديد حجم البيانات 
 app.use(mongoSanitize()); // تنظيف البيانات المدخلة لمنع هجمات NoSQL Injection
 app.use(xss()); // تنظيف البيانات من أكواد HTML/JS الخبيثة (XSS)
 app.use(hpp()); // منع تلوث المعاملات (HTTP Parameter Pollution)
+
+// إعداد مجلد الصور كملفات ثابتة (Static) للوصول إليها عبر الرابط
+if (!fs.existsSync('uploads')) {
+    fs.mkdirSync('uploads');
+}
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 
 // حماية عامة: تحديد عدد الطلبات لكل IP (Rate Limiting)
 const globalLimiter = rateLimit({
@@ -120,6 +130,19 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema);
 
+// قالب الكوبونات (Coupons)
+const couponSchema = new mongoose.Schema({
+    code: { type: String, required: true, unique: true, uppercase: true }, // رمز الكوبون
+    discountType: { type: String, enum: ['percentage', 'fixed'], required: true }, // نوع الخصم: نسبة أو مبلغ ثابت
+    value: { type: Number, required: true }, // قيمة الخصم
+    expirationDate: { type: Date, required: true }, // تاريخ الانتهاء
+    isActive: { type: Boolean, default: true }, // هل الكوبون فعال؟
+    usageLimit: { type: Number, default: 100 }, // عدد مرات الاستخدام المسموحة
+    usedCount: { type: Number, default: 0 } // كم مرة تم استخدامه
+}, { timestamps: true });
+
+const Coupon = mongoose.model('Coupon', couponSchema);
+
 // قالب الطلبات (Orders)
 const orderSchema = new mongoose.Schema({
     userId: { type: String, required: true },
@@ -130,7 +153,10 @@ const orderSchema = new mongoose.Schema({
         price: Number,
         imageUrl: String
     }],
-    amount: { type: Number, required: true },
+    subtotal: { type: Number, required: true }, // المجموع قبل الخصم
+    discountAmount: { type: Number, default: 0 }, // قيمة الخصم
+    couponCode: { type: String }, // الكود المستخدم (اختياري)
+    amount: { type: Number, required: true }, // المجموع النهائي (تم التعديل ليتطابق مع الفرونت اند)
     shippingAddress: {
         city: String,
         street: String,
@@ -174,22 +200,41 @@ const isAdmin = (req, res, next) => {
 
 // 4. الروابط (Routes)
 
+// --- رابط رفع الصور (Upload API) ---
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/');
+    },
+    filename: (req, file, cb) => {
+        cb(null, Date.now() + path.extname(file.originalname));
+    }
+});
+
+const upload = multer({ storage: storage });
+
+app.post('/api/upload', upload.single('image'), (req, res) => {
+    if (!req.file) return res.status(400).json({ message: "لم يتم رفع أي صورة" });
+    
+    const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    res.json({ imageUrl });
+});
+
 // --- روابط المنتجات (CRUD Operations) ---
 
 // جلب الكل (مع دعم البحث والتصنيف)
 app.get('/api/products', async (req, res) => {
     try {
-        const { category, search } = req.query;
+        const { category, search, minPrice, maxPrice, sort } = req.query;
         let query = {};
 
-        // تصفية حسب التصنيف
+        // 1. تصفية حسب التصنيف
         if (category) {
             const categoryDoc = await Category.findOne({ slug: category });
             if (!categoryDoc) return res.status(200).json([]);
             query.category = categoryDoc._id;
         }
 
-        // تصفية حسب البحث (بالاسم العربي أو الإنجليزي)
+        // 2. تصفية حسب البحث (بالاسم العربي أو الإنجليزي)
         if (search) {
             query.$or = [
                 { 'name.ar': { $regex: search, $options: 'i' } },
@@ -197,9 +242,34 @@ app.get('/api/products', async (req, res) => {
             ];
         }
 
-        const products = await Product.find(query)
-            .sort({ createdAt: -1 })
-            .populate('category');
+        // 3. تصفية حسب السعر (الجديد)
+        if (minPrice || maxPrice) {
+            query.price = {};
+            if (minPrice) query.price.$gte = Number(minPrice);
+            if (maxPrice) query.price.$lte = Number(maxPrice);
+        }
+
+        // بناء الاستعلام
+        let productsQuery = Product.find(query);
+
+        // 4. الترتيب (الجديد)
+        if (sort) {
+            switch (sort) {
+                case 'price_asc': // من الأقل للأعلى
+                    productsQuery = productsQuery.sort({ price: 1 });
+                    break;
+                case 'price_desc': // من الأعلى للأقل
+                    productsQuery = productsQuery.sort({ price: -1 });
+                    break;
+                case 'newest': // الأحدث
+                default:
+                    productsQuery = productsQuery.sort({ createdAt: -1 });
+            }
+        } else {
+            productsQuery = productsQuery.sort({ createdAt: -1 });
+        }
+
+        const products = await productsQuery.populate('category');
         res.status(200).json(products);
     } catch (err) {
         res.status(500).json({ message: "خطأ في جلب البيانات", error: err.message });
@@ -358,6 +428,26 @@ app.post('/api/categories', authenticateToken, isAdmin, async (req, res) => {
     }
 });
 
+// تعديل تصنيف (للأدمن)
+app.put('/api/categories/:id', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const updatedCategory = await Category.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        res.json(updatedCategory);
+    } catch (err) {
+        res.status(400).json({ message: "فشل تحديث التصنيف" });
+    }
+});
+
+// حذف تصنيف (للأدمن)
+app.delete('/api/categories/:id', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        await Category.findByIdAndDelete(req.params.id);
+        res.json({ message: "تم حذف التصنيف بنجاح" });
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في حذف التصنيف" });
+    }
+});
+
 // --- روابط المفضلة (Wishlist) ---
 
 // جلب قائمة المفضلة للمستخدم الحالي (المسجل دخوله)
@@ -467,17 +557,113 @@ app.get('/api/auth/validate-token', authenticateToken, async (req, res) => {
     }
 });
 
+// تحديث الملف الشخصي للمستخدم
+app.put('/api/profile', authenticateToken, async (req, res) => {
+    try {
+        const { name, phone, password } = req.body;
+        const updateData = { name, phone };
+
+        if (password) {
+            updateData.password = await bcrypt.hash(password, 10);
+        }
+
+        const updatedUser = await User.findByIdAndUpdate(
+            req.user.id,
+            updateData,
+            { new: true }
+        ).select('-password');
+
+        res.json(updatedUser);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في تحديث الملف الشخصي" });
+    }
+});
+
 // --- روابط الطلبات (Orders) ---
+
+// إضافة كوبون جديد (للمسؤولين فقط)
+app.post('/api/coupons', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const newCoupon = new Coupon(req.body);
+        await newCoupon.save();
+        res.status(201).json(newCoupon);
+    } catch (err) {
+        res.status(400).json({ message: "فشل إضافة الكوبون", error: err.message });
+    }
+});
+
+// جلب كل الكوبونات (للأدمن)
+app.get('/api/coupons', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const coupons = await Coupon.find().sort({ createdAt: -1 });
+        res.json(coupons);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في جلب الكوبونات" });
+    }
+});
+
+// حذف كوبون (للأدمن)
+app.delete('/api/coupons/:id', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        await Coupon.findByIdAndDelete(req.params.id);
+        res.json({ message: "تم حذف الكوبون بنجاح" });
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في حذف الكوبون" });
+    }
+});
+
+// التحقق من صلاحية الكوبون
+app.post('/api/coupons/validate', async (req, res) => {
+    try {
+        const { code } = req.body;
+        if (!code) return res.status(400).json({ message: "يرجى إدخال كود الخصم" });
+
+        const coupon = await Coupon.findOne({ code: code.toUpperCase(), isActive: true });
+
+        if (!coupon) {
+            return res.status(404).json({ message: "كود الخصم غير صحيح" });
+        }
+
+        if (new Date() > coupon.expirationDate) {
+            return res.status(400).json({ message: "كود الخصم منتهي الصلاحية" });
+        }
+
+        if (coupon.usedCount >= coupon.usageLimit) {
+            return res.status(400).json({ message: "تم تجاوز الحد الأقصى لاستخدام هذا الكوبون" });
+        }
+
+        res.json({
+            valid: true,
+            code: coupon.code,
+            discountType: coupon.discountType,
+            value: coupon.value,
+            message: "تم تطبيق الخصم بنجاح"
+        });
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في السيرفر" });
+    }
+});
 
 // إنشاء طلب جديد
 app.post('/api/orders', authenticateToken, async (req, res) => {
     try {
-        const { products, amount, shippingAddress, payment_method } = req.body;
+        const { products, subtotal, discountAmount, couponCode, amount, shippingAddress, payment_method } = req.body;
         
+        // إذا تم استخدام كوبون، نقوم بزيادة عداد استخدامه
+        if (couponCode) {
+            await Coupon.findOneAndUpdate(
+                { code: couponCode }, 
+                { $inc: { usedCount: 1 } }
+            );
+        }
+
         const newOrder = new Order({
             userId: req.user.id,
             products,
-            amount,
+            subtotal,
+            discountAmount,
+            couponCode,
+            amount, // استخدام amount بدلاً من totalAmount
             shippingAddress,
             paymentMethod: payment_method
         });
@@ -496,6 +682,102 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
         res.status(200).json(orders);
     } catch (err) {
         res.status(500).json({ message: "خطأ في جلب الطلبات" });
+    }
+});
+
+// --- روابط إدارة الطلبات (Admin Orders) ---
+
+// جلب جميع الطلبات (للأدمن فقط)
+app.get('/api/admin/orders', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const orders = await Order.find().sort({ createdAt: -1 });
+        res.status(200).json(orders);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في جلب الطلبات" });
+    }
+});
+
+// تحديث حالة الطلب (مثلاً: تم الشحن، تم التوصيل)
+app.put('/api/admin/orders/:id/status', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { status } = req.body; // الحالة الجديدة
+        const order = await Order.findByIdAndUpdate(
+            req.params.id,
+            { status: status },
+            { new: true }
+        );
+        res.json(order);
+    } catch (err) {
+        res.status(500).json({ message: "فشل تحديث حالة الطلب" });
+    }
+});
+
+// --- إحصائيات لوحة التحكم ---
+
+app.get('/api/admin/stats', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const productsCount = await Product.countDocuments();
+        const ordersCount = await Order.countDocuments();
+        const usersCount = await User.countDocuments();
+        
+        // حساب إجمالي المبيعات باستخدام Aggregation
+        const salesData = await Order.aggregate([
+            { $group: { _id: null, totalSales: { $sum: "$amount" } } }
+        ]);
+        const totalSales = salesData.length > 0 ? salesData[0].totalSales : 0;
+
+        res.json({
+            productsCount,
+            ordersCount,
+            usersCount,
+            totalSales
+        });
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في جلب الإحصائيات" });
+    }
+});
+
+// بيانات الرسم البياني للمبيعات (آخر 7 أيام)
+app.get('/api/admin/sales-chart', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+        const salesData = await Order.aggregate([
+            { $match: { createdAt: { $gte: sevenDaysAgo }, status: { $ne: 'ملغي' } } },
+            {
+                $group: {
+                    _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+                    totalSales: { $sum: "$amount" },
+                    count: { $sum: 1 }
+                }
+            },
+            { $sort: { _id: 1 } }
+        ]);
+
+        res.json(salesData);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في جلب بيانات الرسم البياني" });
+    }
+});
+
+// جلب جميع المستخدمين (للأدمن)
+app.get('/api/admin/users', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const users = await User.find().select('-password').sort({ createdAt: -1 });
+        res.status(200).json(users);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في جلب المستخدمين" });
+    }
+});
+
+// حذف مستخدم (للأدمن)
+app.delete('/api/users/:id', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        await User.findByIdAndDelete(req.params.id);
+        res.json({ message: "تم حذف المستخدم بنجاح" });
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في حذف المستخدم" });
     }
 });
 
