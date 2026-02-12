@@ -37,6 +37,7 @@ const bannerSchema = new mongoose.Schema({
     location: { type: String, enum: ['home', 'category'], default: 'home' },
     category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' }
 });
+}, { timestamps: true });
 
 const Banner = mongoose.model('Banner', bannerSchema);
 
@@ -48,6 +49,7 @@ const categorySchema = new mongoose.Schema({
     slug: { type: String, required: true, unique: true },
     imageUrl: { type: String, required: true }
 });
+}, { timestamps: true });
 
 const Category = mongoose.model('Category', categorySchema);
 
@@ -439,6 +441,7 @@ const luxuryProducts = [
         name: { en: "Luxury Gift Box", ar: "صندوق هدايا فاخر" },
         description: { ar: "مجموعة مختارة من الهدايا.", en: "Curated selection of gifts." },
         price: 150.0, brand: "Details", dimensions: "Standard", category: "gifts",
+        imageUrl: "https://images.unsplash.com/photo-1549465220-1a8b9238cd48?auto=format&fit=crop&q=80&w=800", 
         imageUrl: "https://images.unsplash.com/photo-1549465220-1a8b9238cd48?auto=format&fit=crop&q=80&w=800",
         images: ["https://images.unsplash.com/photo-1549465220-1a8b9238cd48?auto=format&fit=crop&q=80&w=800"]
     },
@@ -498,7 +501,7 @@ const banners = [
         imageUrl: "https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&q=80&w=1200",
         buttonText: { ar: "تسوقي الحقائب", en: "Shop Bags" },
         location: 'category',
-        categorySlug: 'bags'
+        categorySlug: 'bags',
     },
     {
         title: { ar: "ساعات فاخرة", en: "Luxury Watches" },
@@ -560,7 +563,7 @@ const categories = [
         name: { ar: "هدايا", en: "Gifts" },
         slug: "gifts",
         imageUrl: "https://images.unsplash.com/photo-1549465220-1a8b9238cd48?auto=format&fit=crop&q=80&w=800"
-    }
+    },
 ];
 
 async function seedDatabase() {
@@ -627,6 +630,7 @@ async function seedDatabase() {
         const bannersToInsert = banners.map(b => {
             if (b.location === 'category' && b.categorySlug) {
                 const cat = createdCategories.find(c => c.slug === b.categorySlug);
+
                 if (cat) return { ...b, category: cat._id };
             }
             return b;
@@ -635,8 +639,6 @@ async function seedDatabase() {
         await Banner.insertMany(bannersToInsert);
         console.log(`📸 Inserted ${bannersToInsert.length} banners (Home & Category specific)`);
 
-    } catch (err) { console.error('❌ Error:', err); } 
-    finally { mongoose.connection.close(); }
+    } catch (err) { console.error('❌ Error:', err); } finally { mongoose.connection.close(); }
 }
-
 seedDatabase();
