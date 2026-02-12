@@ -21,7 +21,7 @@ const PORT = process.env.PORT || 3000;
 app.use(helmet()); // إضافة ترويسات أمان HTTP لحماية التطبيق
 app.use(morgan('dev')); // تسجيل الطلبات (Logging) لمراقبة النشاط وكشف الأخطاء
 app.use(cors()); 
-app.use(express.json({ limit: '1mb' })); // تحديد حجم البيانات المستقبلة لمنع إغراق السيرفر
+app.use(express.json({ limit: '5mb' })); // تحديد حجم البيانات المستقبلة لمنع إغراق السيرفر
 app.use(mongoSanitize()); // تنظيف البيانات المدخلة لمنع هجمات NoSQL Injection
 app.use(xss()); // تنظيف البيانات من أكواد HTML/JS الخبيثة (XSS)
 app.use(hpp()); // منع تلوث المعاملات (HTTP Parameter Pollution)
@@ -77,7 +77,12 @@ const productSchema = new mongoose.Schema({
     category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', required: true },
     isSoldOut: { type: Boolean, default: false },
     featured: { type: Boolean, default: false },
-    popularity: { type: Number, default: 0 }
+    popularity: { type: Number, default: 0 },
+    quantity: { type: Number, default: 0 }, // الكمية الإجمالية
+    sizes: [{
+        size: { type: String, required: true },
+        quantity: { type: Number, default: 0 }
+    }]
 }, { timestamps: true });
 
 const Product = mongoose.model('Product', productSchema);
@@ -152,7 +157,8 @@ const orderSchema = new mongoose.Schema({
         title: String,
         quantity: Number,
         price: Number,
-        imageUrl: String
+        imageUrl: String,
+        size: String
     }],
     subtotal: { type: Number, required: true }, // المجموع قبل الخصم
     discountAmount: { type: Number, default: 0 }, // قيمة الخصم
@@ -671,6 +677,30 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
                 { code: couponCode }, 
                 { $inc: { usedCount: 1 } }
             );
+        }
+
+        // خصم الكميات من المخزون
+        for (const item of products) {
+            const product = await Product.findById(item.id);
+            if (product) {
+                // خصم من الكمية الكلية
+                product.quantity = Math.max(0, product.quantity - item.quantity);
+                
+                // خصم من المقاس المحدد إذا وجد
+                if (item.size && product.sizes && product.sizes.length > 0) {
+                    const sizeIndex = product.sizes.findIndex(s => s.size === item.size);
+                    if (sizeIndex > -1) {
+                        product.sizes[sizeIndex].quantity = Math.max(0, product.sizes[sizeIndex].quantity - item.quantity);
+                    }
+                }
+                
+                // تحديث حالة "نفذت الكمية" إذا وصل الصفر
+                if (product.quantity === 0) {
+                    product.isSoldOut = true;
+                }
+                
+                await product.save();
+            }
         }
 
         const newOrder = new Order({
