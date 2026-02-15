@@ -151,7 +151,7 @@ const Coupon = mongoose.model('Coupon', couponSchema);
 
 // قالب الطلبات (Orders)
 const orderSchema = new mongoose.Schema({
-    userId: { type: String, required: true },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     products: [{
         id: String,
         title: String,
@@ -234,7 +234,6 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// --- روابط المنتجات (CRUD Operations) ---
 
 // جلب الكل (مع دعم البحث والتصنيف)
 app.get('/api/products', async (req, res) => {
@@ -744,8 +743,15 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 // جلب جميع الطلبات (للأدمن فقط)
 app.get('/api/admin/orders', authenticateToken, isAdmin, async (req, res) => {
     try {
-        const orders = await Order.find().sort({ createdAt: -1 });
-        res.status(200).json(orders);
+        const orders = await Order.find()
+            .populate('userId', 'name email')
+            .sort({ createdAt: -1 });
+
+        const formattedOrders = orders.map(order => ({
+            ...order.toObject(),
+            user: order.userId
+        }));
+        res.status(200).json(formattedOrders);
     } catch (err) {
         res.status(500).json({ message: "خطأ في جلب الطلبات" });
     }
