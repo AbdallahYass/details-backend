@@ -226,6 +226,14 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
     res.json({ imageUrl });
 });
 
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ 
+        status: 'UP', 
+        timestamp: new Date(),
+        uptime: process.uptime() // يعطيك مدة تشغيل السيرفر بالثواني
+    });
+});
+
 // --- روابط المنتجات (CRUD Operations) ---
 
 // جلب الكل (مع دعم البحث والتصنيف)
