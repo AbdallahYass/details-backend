@@ -159,7 +159,7 @@ const orderSchema = new mongoose.Schema({
         price: Number,
         imageUrl: String,
         size: String
-    }],
+    }],//
     subtotal: { type: Number, required: true }, // المجموع قبل الخصم
     discountAmount: { type: Number, default: 0 }, // قيمة الخصم
     couponCode: { type: String }, // الكود المستخدم (اختياري)
