@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
-// 1. الموديلات (Schemas)
+// 1. الموديلات (Schemas) - مطابقة تماماً لملف server.js
 const productSchema = new mongoose.Schema({
     name: { 
         ar: { type: String, required: true },
@@ -19,8 +19,13 @@ const productSchema = new mongoose.Schema({
     images: [String],
     category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', required: true },
     isSoldOut: { type: Boolean, default: false },
-    popularity: { type: Number, default: 0 }, // عدد مرات الإضافة لقائمة المفضلة
-    featured: { type: Boolean, default: false }
+    featured: { type: Boolean, default: false },
+    popularity: { type: Number, default: 0 },
+    quantity: { type: Number, default: 0 }, // الكمية الإجمالية
+    sizes: [{
+        size: { type: String, required: true },
+        quantity: { type: Number, default: 0 }
+    }]
 }, { timestamps: true });
 
 const Product = mongoose.model('Product', productSchema);
@@ -35,6 +40,7 @@ const bannerSchema = new mongoose.Schema({
         ar: { type: String, default: "اكتشف ديتيلز" },
         en: { type: String, default: "Discover Details" }
     },
+    link: String,
     location: { type: String, enum: ['home', 'category'], default: 'home' },
     category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' }
 }, { timestamps: true });
@@ -68,6 +74,41 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
+
+// قالب الكوبونات (Coupons)
+const couponSchema = new mongoose.Schema({
+    code: { type: String, required: true, unique: true, uppercase: true },
+    discountType: { type: String, enum: ['percentage', 'fixed'], required: true },
+    value: { type: Number, required: true },
+    expirationDate: { type: Date, required: true },
+    isActive: { type: Boolean, default: true },
+    usageLimit: { type: Number, default: 100 },
+    usedCount: { type: Number, default: 0 }
+}, { timestamps: true });
+
+const Coupon = mongoose.model('Coupon', couponSchema);
+
+// قالب المشتركين (Subscribers)
+const subscriberSchema = new mongoose.Schema({
+    email: { type: String, required: true, unique: true, trim: true }
+}, { timestamps: true });
+
+const Subscriber = mongoose.model('Subscriber', subscriberSchema);
+
+// قالب الطلبات (Orders)
+const orderSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    products: [Object], // تبسيط للهيكل في الـ Seed
+    subtotal: Number,
+    discountAmount: Number,
+    couponCode: String,
+    amount: Number,
+    shippingAddress: Object,
+    paymentMethod: String,
+    status: { type: String, default: 'قيد التجهيز' }
+}, { timestamps: true });
+
+const Order = mongoose.model('Order', orderSchema);
 
 // 2. الاتصال (MongoDB Atlas)
 const dbURI = "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/DetailsStoreDB?appName=DetailsCluster";
@@ -586,6 +627,9 @@ async function seedDatabase() {
         await Category.deleteMany({});
         await Wishlist.deleteMany({});
         await User.deleteMany({});
+        await Coupon.deleteMany({});
+        await Subscriber.deleteMany({});
+        await Order.deleteMany({});
         console.log('🗑️ Old data cleared');
 
         let createdCategories = [];
@@ -616,6 +660,27 @@ async function seedDatabase() {
                 for (let i = 0; i < 15; i++) {
                     const template = templates[i % templates.length];
                     const suffix = i >= templates.length ? ` ${Math.floor(i / templates.length) + 1}` : "";
+
+                    // تحديد الأحجام بناءً على نوع المنتج
+                    let sizes = [];
+                    if (cat.slug === 'clothing') {
+                        sizes = [
+                            { size: 'S', quantity: 5 },
+                            { size: 'M', quantity: 10 },
+                            { size: 'L', quantity: 5 },
+                            { size: 'XL', quantity: 2 }
+                        ];
+                    } else if (cat.slug === 'shoes') {
+                        sizes = [
+                            { size: '40', quantity: 5 },
+                            { size: '41', quantity: 8 },
+                            { size: '42', quantity: 6 },
+                            { size: '43', quantity: 4 },
+                            { size: '44', quantity: 2 }
+                        ];
+                    } else {
+                        sizes = [{ size: 'Standard', quantity: 20 }];
+                    }
                     
                     const newProduct = {
                         ...template,
@@ -626,7 +691,9 @@ async function seedDatabase() {
                         price: i >= templates.length ? template.price + (i * 2) : template.price,
                         category: cat._id,
                         featured: i === 0 ? true : (template.featured && i < templates.length),
-                        popularity: Math.floor(Math.random() * 500) // إضافة شعبية عشوائية للعرض
+                        popularity: Math.floor(Math.random() * 500),
+                        quantity: 50, // كمية إجمالية
+                        sizes: sizes
                     };
                     
                     productsToInsert.push(newProduct);
@@ -634,8 +701,8 @@ async function seedDatabase() {
             }
         }
 
-        await Product.insertMany(productsToInsert);
-        console.log(`✨ Inserted ${productsToInsert.length} products (15 per category)`);
+        const createdProducts = await Product.insertMany(productsToInsert);
+        console.log(`✨ Inserted ${createdProducts.length} products (15 per category)`);
 
         // 3. إدراج الإعلانات (مع ربط إعلانات الكاتيجوري)
         const bannersToInsert = banners.map(b => {
@@ -660,7 +727,68 @@ async function seedDatabase() {
             isAdmin: true
         });
         await adminUser.save();
-        console.log('👤 Admin user created: admin@details.com / 123456');
+
+        const normalUser = new User({
+            name: "Test User",
+            email: "user@details.com",
+            password: hashedPassword,
+            phone: "0780000000",
+            isAdmin: false
+        });
+        await normalUser.save();
+        console.log('👤 Users created: (admin@details.com) & (user@details.com) / Pass: 123456');
+
+        // 5. إدراج الكوبونات
+        const coupons = [
+            { code: "WELCOME10", discountType: "percentage", value: 10, expirationDate: new Date("2030-01-01") },
+            { code: "SAVE50", discountType: "fixed", value: 50, expirationDate: new Date("2030-01-01") },
+            { code: "EXPIRED", discountType: "percentage", value: 20, expirationDate: new Date("2020-01-01") } // منتهي
+        ];
+        await Coupon.insertMany(coupons);
+        console.log('🎟️ Coupons created: WELCOME10, SAVE50');
+
+        // 6. إدراج المشتركين
+        await Subscriber.insertMany([
+            { email: "subscriber1@test.com" },
+            { email: "subscriber2@test.com" }
+        ]);
+        console.log('📧 Subscribers added');
+
+        // 7. إنشاء طلب وهمي للمستخدم العادي
+        if (createdProducts.length > 0) {
+            const p1 = createdProducts[0];
+            const p2 = createdProducts[1];
+            
+            const order = new Order({
+                userId: normalUser._id,
+                products: [
+                    {
+                        id: p1._id.toString(),
+                        title: p1.name.en,
+                        quantity: 1,
+                        price: p1.price,
+                        imageUrl: p1.imageUrl,
+                        size: p1.sizes[0]?.size || 'Standard'
+                    },
+                    {
+                        id: p2._id.toString(),
+                        title: p2.name.en,
+                        quantity: 2,
+                        price: p2.price,
+                        imageUrl: p2.imageUrl,
+                        size: p2.sizes[0]?.size || 'Standard'
+                    }
+                ],
+                subtotal: p1.price + (p2.price * 2),
+                discountAmount: 0,
+                amount: p1.price + (p2.price * 2),
+                shippingAddress: { city: "Amman", street: "Mecca St", phone: "0799999999" },
+                paymentMethod: "cod",
+                status: "قيد التجهيز"
+            });
+            await order.save();
+            console.log('📦 Sample Order created for Test User');
+        }
 
     } catch (err) { console.error('❌ Error:', err); } finally { mongoose.connection.close(); }
 }
