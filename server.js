@@ -669,6 +669,16 @@ app.post('/api/subscribe', async (req, res) => {
     }
 });
 
+// جلب المشتركين (للأدمن فقط)
+app.get('/api/admin/subscribers', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const subscribers = await Subscriber.find().sort({ createdAt: -1 });
+        res.status(200).json(subscribers);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في جلب المشتركين" });
+    }
+});
+
 // إنشاء طلب جديد
 app.post('/api/orders', authenticateToken, async (req, res) => {
     try {
