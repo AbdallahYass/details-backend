@@ -10,7 +10,6 @@ const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss-clean');
 const hpp = require('hpp');
 const morgan = require('morgan');
-const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -49,13 +48,19 @@ mongoose.connect(dbURI)
     .catch(err => console.error('❌ Database Connection Error:', err));
 
 // إعداد خدمة البريد الإلكتروني (Nodemailer)
-const transporter = nodemailer.createTransport({
-    service: 'gmail', // أو استخدم host و port لمزود آخر
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    }
-});
+let transporter;
+try {
+    const nodemailer = require('nodemailer');
+    transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS
+        }
+    });
+} catch (e) {
+    console.warn("⚠️ Nodemailer module not found. Email features are disabled.");
+}
 
 // 3. تعريف الـ Schemas
 
@@ -693,6 +698,11 @@ app.get('/api/admin/subscribers', authenticateToken, isAdmin, async (req, res) =
 app.post('/api/admin/send-email', authenticateToken, isAdmin, async (req, res) => {
     try {
         const { subject, message } = req.body;
+        
+        if (!transporter) {
+            return res.status(503).json({ message: "خدمة البريد الإلكتروني غير مفعلة حالياً (المكتبة غير مثبتة)" });
+        }
+
         if (!subject || !message) {
             return res.status(400).json({ message: "الموضوع والرسالة مطلوبان" });
         }
@@ -725,6 +735,11 @@ app.post('/api/admin/send-email', authenticateToken, isAdmin, async (req, res) =
 app.post('/api/contact', async (req, res) => {
     try {
         const { name, email, message } = req.body;
+
+        if (!transporter) {
+            return res.status(503).json({ message: "خدمة التواصل غير مفعلة حالياً" });
+        }
+
         if (!name || !email || !message) {
             return res.status(400).json({ message: "جميع الحقول مطلوبة" });
         }
@@ -795,13 +810,15 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 
         const savedOrder = await newOrder.save();
         res.status(201).json(savedOrder);
-                const mailOptions = {
-            from: '"Details Store" <no-reply@details-store.com>',
-            to: req.user.email,
-            subject: 'تأكيد طلبك',
-            text: `شكراً لطلبك رقم ${savedOrder._id}. طلبك قيد التجهيز.`
-        };
-        transporter.sendMail(mailOptions);
+        
+        if (transporter && req.user.email) {
+            transporter.sendMail({
+                from: '"Details Store" <no-reply@details-store.com>',
+                to: req.user.email,
+                subject: 'تأكيد طلبك',
+                text: `شكراً لطلبك رقم ${savedOrder._id}. طلبك قيد التجهيز.`
+            }).catch(err => console.error("Failed to send order email:", err));
+        }
     } catch (err) {
         res.status(500).json({ message: "خطأ في إنشاء الطلب", error: err.message });
     }
