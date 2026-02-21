@@ -10,6 +10,7 @@ const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss-clean');
 const hpp = require('hpp');
 const morgan = require('morgan');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -46,6 +47,15 @@ const dbURI = process.env.MONGODB_URI;
 mongoose.connect(dbURI)
     .then(() => console.log('✅ Connected to Details Store Database'))
     .catch(err => console.error('❌ Database Connection Error:', err));
+
+// إعداد خدمة البريد الإلكتروني (Nodemailer)
+const transporter = nodemailer.createTransport({
+    service: 'gmail', // أو استخدم host و port لمزود آخر
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
 
 // 3. تعريف الـ Schemas
 
@@ -679,6 +689,62 @@ app.get('/api/admin/subscribers', authenticateToken, isAdmin, async (req, res) =
     }
 });
 
+// إرسال بريد إلكتروني جماعي للمشتركين (للأدمن فقط)
+app.post('/api/admin/send-email', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { subject, message } = req.body;
+        if (!subject || !message) {
+            return res.status(400).json({ message: "الموضوع والرسالة مطلوبان" });
+        }
+
+        // جلب جميع إيميلات المشتركين
+        const subscribers = await Subscriber.find({});
+        if (subscribers.length === 0) {
+            return res.status(400).json({ message: "لا يوجد مشتركين لإرسال الرسالة لهم" });
+        }
+
+        const emails = subscribers.map(sub => sub.email);
+
+        // إعداد الرسالة
+        const mailOptions = {
+            from: '"Details Store" <no-reply@details-store.com>', // استخدام إيميل no-reply للإرسال
+            bcc: emails, // استخدام BCC لإخفاء قائمة المستلمين عن بعضهم
+            subject: subject,
+            text: message, // أو html: message إذا كنت ترسل HTML
+        };
+
+        await transporter.sendMail(mailOptions);
+        res.status(200).json({ message: `تم إرسال البريد الإلكتروني إلى ${emails.length} مشترك بنجاح` });
+    } catch (err) {
+        console.error("Email Error:", err);
+        res.status(500).json({ message: "فشل إرسال البريد الإلكتروني" });
+    }
+});
+
+// نموذج تواصل معنا (يرسل رسالة من العميل إلى الدعم الفني support@details-store.com)
+app.post('/api/contact', async (req, res) => {
+    try {
+        const { name, email, message } = req.body;
+        if (!name || !email || !message) {
+            return res.status(400).json({ message: "جميع الحقول مطلوبة" });
+        }
+
+        const mailOptions = {
+            from: '"Details Contact Form" <no-reply@details-store.com>', // النظام هو من يرسل الإشعار
+            replyTo: email, // لكي تضغط Reply فيصل الرد لبريد العميل مباشرة
+            to: 'support@details-store.com', // المستقبل هو بريد الدعم الفني
+            subject: `رسالة جديدة من: ${name}`,
+            text: `الاسم: ${name}\nالبريد: ${email}\n\nالرسالة:\n${message}`
+        };
+
+        await transporter.sendMail(mailOptions);
+        res.status(200).json({ message: "تم إرسال رسالتك بنجاح" });
+    } catch (err) {
+        console.error("Contact Error:", err);
+        res.status(500).json({ message: "فشل إرسال الرسالة" });
+    }
+});
+
 // إنشاء طلب جديد
 app.post('/api/orders', authenticateToken, async (req, res) => {
     try {
@@ -729,6 +795,13 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 
         const savedOrder = await newOrder.save();
         res.status(201).json(savedOrder);
+                const mailOptions = {
+            from: '"Details Store" <no-reply@details-store.com>',
+            to: req.user.email,
+            subject: 'تأكيد طلبك',
+            text: `شكراً لطلبك رقم ${savedOrder._id}. طلبك قيد التجهيز.`
+        };
+        transporter.sendMail(mailOptions);
     } catch (err) {
         res.status(500).json({ message: "خطأ في إنشاء الطلب", error: err.message });
     }
