@@ -787,7 +787,7 @@ app.post('/api/contact', async (req, res) => {
 
         // تجهيز البيانات بصيغة يقبلها Brevo API
         const payload = {
-            sender: { name: "Details Contact Form", email: "no-reply@details-store.com" }, // الإيميل المعتمد في Brevo
+            sender: { name: "Details Store", email: "detailss246@gmail.com" }, // الإيميل المعتمد في Brevo
             to: [{ email: "support@details-store.com" }], // إيميل الدعم الفني الذي ستستقبل عليه الرسائل
             replyTo: { email: email, name: name }, // لكي يذهب الرد مباشرة للعميل عند الضغط على Reply
             subject: `رسالة جديدة من: ${name}`,
