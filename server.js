@@ -53,7 +53,8 @@ mongoose.connect(dbURI)
 const sendEmailViaBrevo = async ({ to, bcc, subject, textContent }) => {
     try {
         const payload = {
-            sender: { name: "Details Store", email: "no-reply@details-store.com" }, // تأكد من توثيق هذا الإيميل في Brevo
+            // نستخدم الإيميل الموثق (Gmail) بس الاسم يظهر "Details Store"
+            sender: { name: "Details Store (No-reply)", email: "detailss246@gmail.com" }, 
             subject: subject,
             textContent: textContent
         };
@@ -227,7 +228,10 @@ const authenticateToken = (req, res, next) => {
     if (!token) return res.status(401).json({ message: "يرجى تسجيل الدخول أولاً" });
 
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-        if (err) return res.status(403).json({ message: "الجلسة انتهت، يرجى إعادة تسجيل الدخول" });
+        if (err) {
+            console.error("JWT Verification Error:", err.message);
+            return res.status(403).json({ message: "الجلسة انتهت، يرجى إعادة تسجيل الدخول" });
+        }
         req.user = user;
         next();
     });
