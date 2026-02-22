@@ -54,13 +54,15 @@ let transporter;
 try {
     const nodemailer = require('nodemailer');
     transporter = nodemailer.createTransport({
-        service: 'gmail', // استخدام إعدادات Gmail الافتراضية (الأكثر استقراراً)
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false, // استخدام STARTTLS
         auth: {
             user: process.env.EMAIL_USER,
             pass: process.env.EMAIL_PASS
         },
         tls: {
-            rejectUnauthorized: false // لتجنب مشاكل الشهادات في البيئات السحابية
+            rejectUnauthorized: false
         }
     });
 
@@ -233,6 +235,10 @@ const isAdmin = (req, res, next) => {
 };
 
 // 4. الروابط (Routes)
+
+app.get('/', (req, res) => {
+    res.send('Welcome to Details Store API');
+});
 
 app.get('/api/health', (req, res) => {
     res.status(200).json({ 
