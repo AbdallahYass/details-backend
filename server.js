@@ -49,34 +49,41 @@ mongoose.connect(dbURI)
     .then(() => console.log('✅ Connected to Details Store Database'))
     .catch(err => console.error('❌ Database Connection Error:', err));
 
-// إعداد خدمة البريد الإلكتروني (Nodemailer)
-let transporter;
-try {
-    const nodemailer = require('nodemailer');
-    transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 587,
-        secure: false, // استخدام STARTTLS
-        auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS
-        },
-        tls: {
-            rejectUnauthorized: false
-        }
-    });
+// دالة مساعدة لإرسال الإيميلات عبر Brevo API لتجاوز قيود الاستضافة
+const sendEmailViaBrevo = async ({ to, bcc, subject, textContent }) => {
+    try {
+        const payload = {
+            sender: { name: "Details Store", email: "no-reply@details-store.com" }, // تأكد من توثيق هذا الإيميل في Brevo
+            subject: subject,
+            textContent: textContent
+        };
 
-    // التحقق من صحة الاتصال عند بدء التشغيل (Verify Connection)
-    transporter.verify((error, success) => {
-        if (error) {
-            console.error("❌ خطأ في الاتصال بخدمة البريد (Email Error):", error.message);
-        } else {
-            console.log("✅ خدمة البريد الإلكتروني جاهزة (Email Service Ready)");
+        if (to) payload.to = [{ email: to }];
+        if (bcc) payload.bcc = bcc.map(email => ({ email }));
+
+        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'api-key': process.env.BREVO_API_KEY
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            console.error("❌ خطأ من سيرفر Brevo:", errorData);
+            return false;
         }
-    });
-} catch (e) {
-    console.warn("⚠️ Nodemailer module not found. Email features are disabled.");
-}
+        
+        console.log("✅ تم إرسال الإيميل بنجاح عبر Brevo");
+        return true;
+    } catch (error) {
+        console.error("❌ فشل الاتصال بـ Brevo:", error);
+        return false;
+    }
+};
 
 // 3. تعريف الـ Schemas
 
@@ -714,15 +721,12 @@ app.get('/api/admin/subscribers', authenticateToken, isAdmin, async (req, res) =
     }
 });
 
-// إرسال بريد إلكتروني جماعي للمشتركين (للأدمن فقط)
+// إرسال بريد إلكتروني جماعي للمشتركين (للأدمن فقط) عبر Brevo
 app.post('/api/admin/send-email', authenticateToken, isAdmin, async (req, res) => {
     try {
         const { subject, message } = req.body;
         
-        if (!transporter) {
-            return res.status(503).json({ message: "خدمة البريد الإلكتروني غير مفعلة حالياً (المكتبة غير مثبتة)" });
-        }
-
+        // التحقق من المدخلات
         if (!subject || !message) {
             return res.status(400).json({ message: "الموضوع والرسالة مطلوبان" });
         }
@@ -733,50 +737,86 @@ app.post('/api/admin/send-email', authenticateToken, isAdmin, async (req, res) =
             return res.status(400).json({ message: "لا يوجد مشتركين لإرسال الرسالة لهم" });
         }
 
-        const emails = subscribers.map(sub => sub.email);
+        // تجهيز قائمة المستلمين لـ Brevo (نستخدمها في bcc لإخفاء الإيميلات)
+        const bccList = subscribers.map(sub => ({ email: sub.email }));
 
-        // إعداد الرسالة
-        const mailOptions = {
-            from: '"Details Store" <no-reply@details-store.com>', // استخدام إيميل no-reply للإرسال
-            bcc: emails, // استخدام BCC لإخفاء قائمة المستلمين عن بعضهم
+        // تجهيز البيانات بصيغة يقبلها Brevo API
+        const payload = {
+            sender: { name: "Details Store", email: "no-reply@details-store.com" }, // تأكد من توثيق هذا الإيميل في Brevo
+            to: [{ email: "no-reply@details-store.com", name: "Details Store" }], // إجباري وضع مستلم أساسي، فوضعنا إيميل المتجر
+            bcc: bccList, // جميع المشتركين في النسخة المخفية
             subject: subject,
-            text: message, // أو html: message إذا كنت ترسل HTML
+            textContent: message
         };
 
-        await transporter.sendMail(mailOptions);
-        res.status(200).json({ message: `تم إرسال البريد الإلكتروني إلى ${emails.length} مشترك بنجاح` });
+        // إرسال الطلب إلى سيرفرات Brevo
+        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'api-key': process.env.BREVO_API_KEY // مفتاح الـ API
+            },
+            body: JSON.stringify(payload)
+        });
+
+        // التحقق من حالة الإرسال
+        if (!response.ok) {
+            const errorData = await response.json();
+            console.error("❌ خطأ من Brevo أثناء إرسال النشرة:", errorData);
+            return res.status(500).json({ message: "فشل إرسال النشرة البريدية من الخادم" });
+        }
+
+        res.status(200).json({ message: `تم إرسال البريد الإلكتروني إلى ${subscribers.length} مشترك بنجاح` });
+        
     } catch (err) {
-        console.error("Email Error:", err);
-        res.status(500).json({ message: "فشل إرسال البريد الإلكتروني" });
+        console.error("❌ خطأ في السيرفر أثناء إرسال البريد الجماعي:", err);
+        res.status(500).json({ message: "حدث خطأ غير متوقع، يرجى مراجعة سجلات السيرفر" });
     }
 });
 
-// نموذج تواصل معنا (يرسل رسالة من العميل إلى الدعم الفني support@details-store.com)
+// نموذج تواصل معنا (يرسل رسالة من العميل إلى الدعم الفني عبر Brevo)
 app.post('/api/contact', async (req, res) => {
     try {
         const { name, email, message } = req.body || {};
 
-        if (!transporter) {
-            return res.status(503).json({ message: "خدمة التواصل غير مفعلة حالياً" });
-        }
-
+        // التحقق من إدخال جميع البيانات
         if (!name || !email || !message) {
             return res.status(400).json({ message: "جميع الحقول مطلوبة" });
         }
 
-        const mailOptions = {
-            from: '"Details Contact Form" <no-reply@details-store.com>', // النظام هو من يرسل الإشعار
-            replyTo: email, // لكي تضغط Reply فيصل الرد لبريد العميل مباشرة
-            to: 'support@details-store.com', // المستقبل هو بريد الدعم الفني
+        // تجهيز البيانات بصيغة يقبلها Brevo API
+        const payload = {
+            sender: { name: "Details Contact Form", email: "no-reply@details-store.com" }, // الإيميل المعتمد في Brevo
+            to: [{ email: "support@details-store.com" }], // إيميل الدعم الفني الذي ستستقبل عليه الرسائل
+            replyTo: { email: email, name: name }, // لكي يذهب الرد مباشرة للعميل عند الضغط على Reply
             subject: `رسالة جديدة من: ${name}`,
-            text: `الاسم: ${name}\nالبريد: ${email}\n\nالرسالة:\n${message}`
+            textContent: `الاسم: ${name}\nالبريد: ${email}\n\nالرسالة:\n${message}`
         };
 
-        await transporter.sendMail(mailOptions);
+        // إرسال الطلب إلى سيرفرات Brevo
+        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'api-key': process.env.BREVO_API_KEY // مفتاح الـ API الذي ستضيفه في Render
+            },
+            body: JSON.stringify(payload)
+        });
+
+        // التحقق من نجاح الإرسال من جهة Brevo
+        if (!response.ok) {
+            const errorData = await response.json();
+            console.error("❌ خطأ من Brevo:", errorData);
+            return res.status(500).json({ message: "فشل إرسال الرسالة من الخادم" });
+        }
+
         res.status(200).json({ message: "تم إرسال رسالتك بنجاح" });
+
     } catch (err) {
-        console.error("Contact Error:", err);
-        res.status(500).json({ message: "فشل إرسال الرسالة" });
+        console.error("❌ خطأ في السيرفر أثناء الإرسال:", err);
+        res.status(500).json({ message: "حدث خطأ غير متوقع، يرجى المحاولة لاحقاً" });
     }
 });
 
@@ -831,13 +871,12 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         const savedOrder = await newOrder.save();
         res.status(201).json(savedOrder);
         
-        if (transporter && req.user.email) {
-            transporter.sendMail({
-                from: '"Details Store" <no-reply@details-store.com>',
+        if (req.user.email) {
+            await sendEmailViaBrevo({
                 to: req.user.email,
-                subject: 'تأكيد طلبك',
-                text: `شكراً لطلبك رقم ${savedOrder._id}. طلبك قيد التجهيز.`
-            }).catch(err => console.error("Failed to send order email:", err));
+                subject: 'تأكيد طلبك من ديتيلز',
+                textContent: `شكراً لطلبك رقم ${savedOrder._id}. طلبك قيد التجهيز وسيصلك قريباً.`
+            });
         }
     } catch (err) {
         res.status(500).json({ message: "خطأ في إنشاء الطلب", error: err.message });
