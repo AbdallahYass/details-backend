@@ -825,7 +825,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
     try {
         const { products, subtotal, discountAmount, couponCode, amount, shippingAddress, payment_method } = req.body;
         
-        // إذا تم استخدام كوبون، نقوم بزيادة عداد استخدامه
+        // 1. إذا تم استخدام كوبون، نقوم بزيادة عداد استخدامه
         if (couponCode) {
             await Coupon.findOneAndUpdate(
                 { code: couponCode }, 
@@ -833,7 +833,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
             );
         }
 
-        // خصم الكميات من المخزون
+        // 2. خصم الكميات من المخزون
         for (const item of products) {
             const product = await Product.findById(item.id);
             if (product) {
@@ -857,27 +857,37 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
             }
         }
 
+        // 3. إنشاء الطلب في قاعدة البيانات
         const newOrder = new Order({
             userId: req.user.id,
             products,
             subtotal,
             discountAmount,
             couponCode,
-            amount, // استخدام amount بدلاً من totalAmount
+            amount, // المجموع النهائي
             shippingAddress,
             paymentMethod: payment_method
         });
 
         const savedOrder = await newOrder.save();
+        
+        // 4. إرسال بريد تأكيد الطلب للعميل (أولاً)
+        // نضعها في try...catch منفصلة حتى إذا فشل الإيميل، لا يفشل الطلب بأكمله
+        if (req.user.email) {
+            try {
+                await sendEmailViaBrevo({
+                    to: req.user.email,
+                    subject: 'تأكيد طلبك من ديتيلز',
+                    textContent: `مرحباً بك في ديتيلز،\n\nشكراً لطلبك رقم ${savedOrder._id}.\nطلبك الآن قيد التجهيز وسيصلك في أقرب وقت.\n\nالمجموع: ${amount}\nطريقة الدفع: ${payment_method === 'cod' ? 'الدفع عند الاستلام' : 'بطاقة ائتمانية'}`
+                });
+            } catch (emailErr) {
+                console.error("⚠️ تم حفظ الطلب ولكن فشل إرسال إيميل التأكيد:", emailErr);
+            }
+        }
+
+        // 5. إرسال الرد بنجاح العملية (أخيراً)
         res.status(201).json(savedOrder);
         
-        if (req.user.email) {
-            await sendEmailViaBrevo({
-                to: req.user.email,
-                subject: 'تأكيد طلبك من ديتيلز',
-                textContent: `شكراً لطلبك رقم ${savedOrder._id}. طلبك قيد التجهيز وسيصلك قريباً.`
-            });
-        }
     } catch (err) {
         res.status(500).json({ message: "خطأ في إنشاء الطلب", error: err.message });
     }
