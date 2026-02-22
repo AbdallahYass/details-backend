@@ -54,12 +54,13 @@ let transporter;
 try {
     const nodemailer = require('nodemailer');
     transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com', // تحديد المضيف مباشرة لضمان الاستقرار
-        port: 587, // استخدام المنفذ 587 بدلاً من 465 لتجنب مشاكل Timeout
-        secure: false, // يجب أن تكون false مع المنفذ 587
+        service: 'gmail', // استخدام إعدادات Gmail الافتراضية (الأكثر استقراراً)
         auth: {
             user: process.env.EMAIL_USER,
             pass: process.env.EMAIL_PASS
+        },
+        tls: {
+            rejectUnauthorized: false // لتجنب مشاكل الشهادات في البيئات السحابية
         }
     });
 
