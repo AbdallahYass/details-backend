@@ -795,6 +795,7 @@ app.post('/api/contact', async (req, res) => {
         };
 
         // إرسال الطلب إلى سيرفرات Brevo
+        console.log("حالة مفتاح بريفو:", process.env.BREVO_API_KEY ? "✅ السيرفر يقرأ المفتاح بنجاح" : "❌ المفتاح مفقود (undefined)");
         const response = await fetch('https://api.brevo.com/v3/smtp/email', {
             method: 'POST',
             headers: {
