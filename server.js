@@ -12,6 +12,7 @@ const hpp = require('hpp');
 const morgan = require('morgan');
 
 const app = express();
+app.set('trust proxy', 1); // ثق في البروكسي الأول (ضروري للاستضافة على Render لإصلاح خطأ Rate Limit)
 const PORT = process.env.PORT || 3000;
 
 // 1. Middleware
@@ -54,8 +55,8 @@ try {
     const nodemailer = require('nodemailer');
     transporter = nodemailer.createTransport({
         host: 'smtp.gmail.com', // تحديد المضيف مباشرة لضمان الاستقرار
-        port: 465, // منفذ SSL الآمن
-        secure: true,
+        port: 587, // استخدام المنفذ 587 بدلاً من 465 لتجنب مشاكل Timeout
+        secure: false, // يجب أن تكون false مع المنفذ 587
         auth: {
             user: process.env.EMAIL_USER,
             pass: process.env.EMAIL_PASS
