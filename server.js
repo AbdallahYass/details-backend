@@ -724,8 +724,7 @@ app.post('/api/admin/send-email', authenticateToken, isAdmin, async (req, res) =
             text: message, // أو html: message إذا كنت ترسل HTML
         };
 
-        // إرسال في الخلفية لتجنب Timeout
-        transporter.sendMail(mailOptions).catch(err => console.error("Admin Email Error:", err));
+        await transporter.sendMail(mailOptions);
         res.status(200).json({ message: `تم إرسال البريد الإلكتروني إلى ${emails.length} مشترك بنجاح` });
     } catch (err) {
         console.error("Email Error:", err);
@@ -754,8 +753,7 @@ app.post('/api/contact', async (req, res) => {
             text: `الاسم: ${name}\nالبريد: ${email}\n\nالرسالة:\n${message}`
         };
 
-        // إرسال في الخلفية لتجنب Timeout
-        transporter.sendMail(mailOptions).catch(err => console.error("Contact Email Error:", err));
+        await transporter.sendMail(mailOptions);
         res.status(200).json({ message: "تم إرسال رسالتك بنجاح" });
     } catch (err) {
         console.error("Contact Error:", err);
