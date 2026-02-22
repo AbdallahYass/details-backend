@@ -53,10 +53,21 @@ let transporter;
 try {
     const nodemailer = require('nodemailer');
     transporter = nodemailer.createTransport({
-        service: 'gmail',
+        host: 'smtp.gmail.com', // تحديد المضيف مباشرة لضمان الاستقرار
+        port: 465, // منفذ SSL الآمن
+        secure: true,
         auth: {
             user: process.env.EMAIL_USER,
             pass: process.env.EMAIL_PASS
+        }
+    });
+
+    // التحقق من صحة الاتصال عند بدء التشغيل (Verify Connection)
+    transporter.verify((error, success) => {
+        if (error) {
+            console.error("❌ خطأ في الاتصال بخدمة البريد (Email Error):", error.message);
+        } else {
+            console.log("✅ خدمة البريد الإلكتروني جاهزة (Email Service Ready)");
         }
     });
 } catch (e) {
