@@ -784,44 +784,45 @@ app.post('/api/contact', async (req, res) => {
     try {
         const { name, email, message } = req.body || {};
 
-        // التحقق من إدخال جميع البيانات
         if (!name || !email || !message) {
             return res.status(400).json({ message: "جميع الحقول مطلوبة" });
         }
 
-        // تجهيز البيانات بصيغة يقبلها Brevo API
         const payload = {
-            sender: { name: "Details Store", email: "no-reply@details-store.com" },
-            to: [{ email: "support@details-store.com" }], // إيميل الدعم الفني الذي ستستقبل عليه الرسائل
-            replyTo: { email: email, name: name }, // لكي يذهب الرد مباشرة للعميل عند الضغط على Reply
-            subject: `رسالة جديدة من: ${name}`,
-            textContent: `الاسم: ${name}\nالبريد: ${email}\n\nالرسالة:\n${message}`
+            // نضع اسم المرسل هنا ليظهر لك في صندوق الوارد، لكن الإيميل يبقى الموثق لتجنب السبام
+            sender: { name: name, email: "no-reply@details-store.com" },
+            
+            // الوجهة هي إيميل الدعم الفني الخاص بك
+            to: [{ email: "support@details-store.com" }], 
+            
+            // هذا هو السطر الأهم: عند الضغط على Reply، سيذهب الرد لهذا الإيميل
+            replyTo: { email: email, name: name }, 
+            
+            subject: `استفسار جديد من: ${name}`,
+            textContent: `الاسم: ${name}\nالبريد الإلكتروني للعميل: ${email}\n\nالرسالة:\n${message}`
         };
 
-        // إرسال الطلب إلى سيرفرات Brevo
-        console.log("حالة مفتاح بريفو:", process.env.BREVO_API_KEY ? "✅ السيرفر يقرأ المفتاح بنجاح" : "❌ المفتاح مفقود (undefined)");
         const response = await fetch('https://api.brevo.com/v3/smtp/email', {
             method: 'POST',
             headers: {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json',
-                'api-key': process.env.BREVO_API_KEY // مفتاح الـ API الذي ستضيفه في Render
+                'api-key': process.env.BREVO_API_KEY 
             },
             body: JSON.stringify(payload)
         });
 
-        // التحقق من نجاح الإرسال من جهة Brevo
         if (!response.ok) {
             const errorData = await response.json();
-            console.error("❌ خطأ من Brevo:", errorData);
-            return res.status(500).json({ message: "فشل إرسال الرسالة من الخادم" });
+            console.error("❌ خطأ من بريفو:", errorData);
+            return res.status(500).json({ message: "فشل إرسال الرسالة" });
         }
 
-        res.status(200).json({ message: "تم إرسال رسالتك بنجاح" });
+        res.status(200).json({ message: "تم إرسال الرسالة بنجاح" });
 
     } catch (err) {
-        console.error("❌ خطأ في السيرفر أثناء الإرسال:", err);
-        res.status(500).json({ message: "حدث خطأ غير متوقع، يرجى المحاولة لاحقاً" });
+        console.error("❌ خطأ في السيرفر:", err);
+        res.status(500).json({ message: "حدث خطأ غير متوقع" });
     }
 });
 
