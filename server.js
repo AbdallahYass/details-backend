@@ -54,7 +54,7 @@ const sendEmailViaBrevo = async ({ to, bcc, subject, textContent }) => {
     try {
         const payload = {
             // نستخدم الإيميل الموثق (Gmail) بس الاسم يظهر "Details Store"
-            sender: { name: "Details Store (No-reply)", email: "detailss246@gmail.com" }, 
+            sender: { name: "Details Store", email: "no-reply@details-store.com" },
             subject: subject,
             textContent: textContent
         };
@@ -746,9 +746,9 @@ app.post('/api/admin/send-email', authenticateToken, isAdmin, async (req, res) =
 
         // تجهيز البيانات بصيغة يقبلها Brevo API
         const payload = {
-            sender: { name: "Details Store", email: "no-reply@details-store.com" }, // تأكد من توثيق هذا الإيميل في Brevo
-            to: [{ email: "no-reply@details-store.com", name: "Details Store" }], // إجباري وضع مستلم أساسي، فوضعنا إيميل المتجر
-            bcc: bccList, // جميع المشتركين في النسخة المخفية
+            sender: { name: "Details Store", email: "no-reply@details-store.com" },
+            to: [{ email: "no-reply@details-store.com", name: "Details Store" }],  
+             bcc: bccList, // جميع المشتركين في النسخة المخفية
             subject: subject,
             textContent: message
         };
@@ -791,7 +791,7 @@ app.post('/api/contact', async (req, res) => {
 
         // تجهيز البيانات بصيغة يقبلها Brevo API
         const payload = {
-            sender: { name: "Details Store", email: "detailss246@gmail.com" }, // الإيميل المعتمد في Brevo
+            sender: { name: "Details Store", email: "no-reply@details-store.com" },
             to: [{ email: "support@details-store.com" }], // إيميل الدعم الفني الذي ستستقبل عليه الرسائل
             replyTo: { email: email, name: name }, // لكي يذهب الرد مباشرة للعميل عند الضغط على Reply
             subject: `رسالة جديدة من: ${name}`,
