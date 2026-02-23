@@ -431,6 +431,35 @@ app.post('/api/products', authenticateToken, isAdmin, async (req, res) => {
         // إنشاء المنتج مع ربط الـ ID الصحيح للتصنيف
         const newProduct = new Product({ ...req.body, category: categoryId });
         const savedProduct = await newProduct.save();
+
+        // إرسال إشعار للمشتركين بوجود منتج جديد
+        try {
+            const subscribers = await Subscriber.find({});
+            if (subscribers.length > 0) {
+                const subscriberEmails = subscribers.map(sub => sub.email);
+                
+                const emailContent = `
+                    <div style="text-align: center;">
+                        <img src="${savedProduct.imageUrl}" alt="${savedProduct.name.ar}" style="max-width: 100%; max-height: 300px; object-fit: cover; border-radius: 8px; margin-bottom: 20px;">
+                        <h2 style="color: #333; margin-bottom: 10px;">${savedProduct.name.ar}</h2>
+                        <p style="color: #666; margin-bottom: 15px;">${(savedProduct.description && savedProduct.description.ar) ? savedProduct.description.ar : ''}</p>
+                        <p style="font-size: 24px; font-weight: bold; color: #000; margin-bottom: 20px;">${savedProduct.price} د.أ</p>
+                        <a href="https://details-store.com/products/${savedProduct._id}" style="display: inline-block; background-color: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; margin-bottom: 20px;">تسوق الآن</a>
+                        <p style="color: #888; font-size: 14px;">اكتشف المزيد من التفاصيل في متجرنا</p>
+                    </div>
+                `;
+
+                await sendEmailViaBrevo({
+                    to: "no-reply@details-store.com", // مستلم وهمي لأن Brevo يتطلب حقل To
+                    bcc: subscriberEmails,
+                    subject: `وصل حديثاً: ${savedProduct.name.ar}`,
+                    htmlContent: getEmailTemplate(`منتج جديد: ${savedProduct.name.ar}`, emailContent)
+                });
+            }
+        } catch (emailErr) {
+            console.error("⚠️ Failed to send new product email:", emailErr);
+        }
+
         res.status(201).json(savedProduct);
     } catch (err) {
         res.status(400).json({ message: "بيانات غير صالحة", error: err.message });
