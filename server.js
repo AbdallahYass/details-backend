@@ -927,10 +927,33 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         // نضعها في try...catch منفصلة حتى إذا فشل الإيميل، لا يفشل الطلب بأكمله
         if (req.user.email) {
             try {
+                const productsListHtml = products.map(p => `
+                    <tr>
+                        <td width="70" style="padding: 10px 0; border-bottom: 1px solid #eee;">
+                            <img src="${p.imageUrl}" alt="${p.title}" width="60" height="60" style="display: block; border-radius: 4px; object-fit: cover;">
+                        </td>
+                        <td style="padding: 10px; border-bottom: 1px solid #eee;">
+                            <p style="margin: 0; font-weight: bold; font-size: 14px; color: #333;">${p.title}</p>
+                            <p style="margin: 5px 0 0; font-size: 12px; color: #777;">
+                                الكمية: ${p.quantity} ${p.size ? `| المقاس: ${p.size}` : ''}
+                            </p>
+                        </td>
+                        <td width="80" style="padding: 10px 0; border-bottom: 1px solid #eee; text-align: left; font-weight: bold; color: #333;">
+                            ${p.price} د.أ
+                        </td>
+                    </tr>
+                `).join('');
+
                 const orderContent = `
                     <p>مرحباً بك في ديتيلز،</p>
                     <p>شكراً لطلبك رقم <strong>#${savedOrder._id}</strong>.</p>
                     <p>طلبك الآن قيد التجهيز وسيصلك في أقرب وقت.</p>
+                    <div style="background-color: #fff; border: 1px solid #e9ecef; border-radius: 4px; padding: 15px; margin: 20px 0;">
+                        <h3 style="margin-top: 0; border-bottom: 2px solid #f4f4f4; padding-bottom: 10px; font-size: 16px;">المنتجات المطلوبة</h3>
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            ${productsListHtml}
+                        </table>
+                    </div>
                     <div class="info-box">
                         <p><span class="label">المجموع:</span> ${amount} د.أ</p>
                         <p><span class="label">طريقة الدفع:</span> ${payment_method === 'cod' ? 'الدفع عند الاستلام' : 'بطاقة ائتمانية'}</p>
