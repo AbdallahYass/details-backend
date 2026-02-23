@@ -741,7 +741,7 @@ app.post('/api/admin/send-email', authenticateToken, isAdmin, async (req, res) =
             return res.status(400).json({ message: "لا يوجد مشتركين لإرسال الرسالة لهم" });
         }
 
-        // تجهيز قائمة المستلمين لـ Brevo (نستخدمها في bcc لإخفاء الإيميلات)
+        // تجهيز قائ//مة المستلمين لـ Brevo (نستخدمها في bcc لإخفاء الإيميلات)
         const bccList = subscribers.map(sub => ({ email: sub.email }));
 
         // تجهيز البيانات بصيغة يقبلها Brevo API
