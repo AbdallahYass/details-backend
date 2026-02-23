@@ -49,14 +49,53 @@ mongoose.connect(dbURI)
     .then(() => console.log('✅ Connected to Details Store Database'))
     .catch(err => console.error('❌ Database Connection Error:', err));
 
+// دالة لإنشاء قالب HTML للإيميل بتصميم احترافي
+const getEmailTemplate = (title, content) => `
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; line-height: 1.6; }
+        .email-container { max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header { background-color: #000000; color: #ffffff; padding: 30px 20px; text-align: center; }
+        .header h1 { margin: 0; font-size: 28px; letter-spacing: 2px; text-transform: uppercase; }
+        .content { padding: 40px 30px; color: #333333; text-align: right; }
+        .content h2 { color: #000000; margin-top: 0; border-bottom: 2px solid #f4f4f4; padding-bottom: 10px; margin-bottom: 20px; font-size: 20px; }
+        .footer { background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #888888; border-top: 1px solid #eeeeee; }
+        .info-box { background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 4px; padding: 15px; margin: 20px 0; }
+        .label { font-weight: bold; color: #555; }
+        a { color: #000; text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h1>DETAILS STORE</h1>
+        </div>
+        <div class="content">
+            <h2>${title}</h2>
+            ${content}
+        </div>
+        <div class="footer">
+            <p>&copy; ${new Date().getFullYear()} Details Store. جميع الحقوق محفوظة.</p>
+            <p>تواصل معنا: <a href="mailto:support@details-store.com">support@details-store.com</a></p>
+        </div>
+    </div>
+</body>
+</html>
+`;
+
 // دالة مساعدة لإرسال الإيميلات عبر Brevo API لتجاوز قيود الاستضافة
-const sendEmailViaBrevo = async ({ to, bcc, subject, textContent }) => {
+const sendEmailViaBrevo = async ({ to, bcc, subject, textContent, htmlContent }) => {
     try {
         const payload = {
             // نستخدم الإيميل الموثق (Gmail) بس الاسم يظهر "Details Store"
             sender: { name: "Details Store", email: "no-reply@details-store.com" },
             subject: subject,
-            textContent: textContent
+            textContent: textContent,
+            htmlContent: htmlContent
         };
 
         if (to) payload.to = [{ email: to }];
@@ -750,7 +789,7 @@ app.post('/api/admin/send-email', authenticateToken, isAdmin, async (req, res) =
             to: [{ email: "no-reply@details-store.com", name: "Details Store" }],  
              bcc: bccList, // جميع المشتركين في النسخة المخفية
             subject: subject,
-            textContent: message
+            htmlContent: getEmailTemplate(subject, `<p>${message.replace(/\n/g, '<br>')}</p>`)
         };
 
         // إرسال الطلب إلى سيرفرات Brevo
@@ -799,7 +838,14 @@ app.post('/api/contact', async (req, res) => {
             replyTo: { email: email, name: name }, 
             
             subject: `استفسار جديد من: ${name}`,
-            textContent: `الاسم: ${name}\nالبريد الإلكتروني للعميل: ${email}\n\nالرسالة:\n${message}`
+            htmlContent: getEmailTemplate('رسالة تواصل جديدة', `
+                <div class="info-box">
+                    <p><span class="label">الاسم:</span> ${name}</p>
+                    <p><span class="label">البريد الإلكتروني:</span> ${email}</p>
+                </div>
+                <p><strong>نص الرسالة:</strong></p>
+                <p>${message.replace(/\n/g, '<br>')}</p>
+            `)
         };
 
         const response = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -881,10 +927,20 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         // نضعها في try...catch منفصلة حتى إذا فشل الإيميل، لا يفشل الطلب بأكمله
         if (req.user.email) {
             try {
+                const orderContent = `
+                    <p>مرحباً بك في ديتيلز،</p>
+                    <p>شكراً لطلبك رقم <strong>#${savedOrder._id}</strong>.</p>
+                    <p>طلبك الآن قيد التجهيز وسيصلك في أقرب وقت.</p>
+                    <div class="info-box">
+                        <p><span class="label">المجموع:</span> ${amount} د.أ</p>
+                        <p><span class="label">طريقة الدفع:</span> ${payment_method === 'cod' ? 'الدفع عند الاستلام' : 'بطاقة ائتمانية'}</p>
+                    </div>
+                    <p>شكراً لتسوقك معنا!</p>
+                `;
                 await sendEmailViaBrevo({
                     to: req.user.email,
                     subject: 'تأكيد طلبك من ديتيلز',
-                    textContent: `مرحباً بك في ديتيلز،\n\nشكراً لطلبك رقم ${savedOrder._id}.\nطلبك الآن قيد التجهيز وسيصلك في أقرب وقت.\n\nالمجموع: ${amount}\nطريقة الدفع: ${payment_method === 'cod' ? 'الدفع عند الاستلام' : 'بطاقة ائتمانية'}`
+                    htmlContent: getEmailTemplate('تأكيد الطلب', orderContent)
                 });
             } catch (emailErr) {
                 console.error("⚠️ تم حفظ الطلب ولكن فشل إرسال إيميل التأكيد:", emailErr);
