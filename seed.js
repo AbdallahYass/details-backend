@@ -72,7 +72,10 @@ const userSchema = new mongoose.Schema({
     phone: String,
     isAdmin: { type: Boolean, default: false },
     passwordResetToken: String,
-    passwordResetExpires: Date
+    passwordResetExpires: Date,
+    isVerified: { type: Boolean, default: false }, // هل الحساب مفعل؟
+    otp: String, // رمز التحقق للتفعيل
+    otpExpires: Date
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
@@ -718,7 +721,8 @@ async function seedDatabase() {
             email: "admin@details.com",
             password: hashedPassword,
             phone: "0790000000",
-            isAdmin: true
+            isAdmin: true,
+            isVerified: true // تفعيل حساب الأدمن تلقائياً
         });
         await adminUser.save();
 
@@ -727,7 +731,8 @@ async function seedDatabase() {
             email: "user@details.com",
             password: hashedPassword,
             phone: "0780000000",
-            isAdmin: false
+            isAdmin: false,
+            isVerified: true // تفعيل حساب التجربة تلقائياً
         });
         await normalUser.save();
         console.log('👤 Users created: (admin@details.com) & (user@details.com) / Pass: 123456');

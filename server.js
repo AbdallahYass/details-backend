@@ -212,10 +212,25 @@ const userSchema = new mongoose.Schema({
     phone: String,
     isAdmin: { type: Boolean, default: false },
     passwordResetToken: String,
-    passwordResetExpires: Date
+    passwordResetExpires: Date,
+    isVerified: { type: Boolean, default: false }, // هل الحساب مفعل؟
+    otp: String, // رمز التحقق للتفعيل
+    otpExpires: Date
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
+
+// قالب المستخدمين قيد الانتظار (PendingUser) - تخزين مؤقت حتى التفعيل
+const pendingUserSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+    phone: String,
+    otp: String,
+    otpExpires: Date
+}, { timestamps: true });
+
+const PendingUser = mongoose.model('PendingUser', pendingUserSchema);
 
 // قالب الكوبونات (Coupons)
 const couponSchema = new mongoose.Schema({
@@ -600,23 +615,107 @@ app.post('/api/auth/register', async (req, res) => {
         // حماية: التحقق من قوة كلمة المرور (مثلاً 6 أحرف على الأقل)
         if (!password || password.length < 6) return res.status(400).json({ message: "كلمة المرور يجب أن تكون 6 أحرف على الأقل" });
 
+        // التأكد من أن البريد غير مسجل كحساب حقيقي
         const existingUser = await User.findOne({ email });
-        if (existingUser) return res.status(400).json({ message: "البريد الإلكتروني مسجل مسبقاً" });
+        if (existingUser) {
+            return res.status(400).json({ message: "البريد الإلكتروني مسجل مسبقاً" });
+        }
 
+        // إنشاء رمز OTP مكون من 6 أرقام
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+        const otpExpires = Date.now() + 10 * 60 * 1000; // صالح لمدة 10 دقائق
+        
         const hashedPassword = await bcrypt.hash(password, 10);
         
-        const newUser = new User({
-            name, 
-            email, 
-            password: hashedPassword, 
-            phone
+        // حفظ البيانات في الجدول المؤقت (PendingUser) بدلاً من User
+        // نستخدم findOneAndUpdate مع upsert لتحديث البيانات إذا حاول التسجيل مرة أخرى قبل التفعيل
+        await PendingUser.findOneAndUpdate(
+            { email },
+            {
+                name, 
+                email, 
+                password: hashedPassword, 
+                phone,
+                otp: hashedOtp, 
+                otpExpires
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+
+        // إرسال رمز التحقق عبر الإيميل
+        const emailContent = `
+            <p>مرحباً ${name}،</p>
+            <p>شكراً لتسجيلك في Details Store. لتفعيل حسابك، يرجى استخدام رمز التحقق التالي:</p>
+            <div style="text-align: center; margin: 30px 0;">
+                <span style="background-color: #f0f0f0; color: #000; padding: 15px 30px; font-size: 24px; letter-spacing: 5px; font-weight: bold; border-radius: 8px; border: 1px dashed #333;">${otp}</span>
+            </div>
+            <p style="color: #666; font-size: 12px;">هذا الرمز صالح لمدة 10 دقائق.</p>
+        `;
+
+        await sendEmailViaBrevo({
+            to: email,
+            subject: 'رمز تفعيل الحساب - Details Store',
+            htmlContent: getEmailTemplate('تفعيل الحساب', emailContent)
         });
         
-        await newUser.save();
-        res.status(201).json({ message: "تم إنشاء الحساب بنجاح" });
+        res.status(200).json({ message: "تم إرسال رمز التحقق إلى بريدك الإلكتروني", email });
+
     } catch (err) {
         console.error("Register Error:", err); // تسجيل الخطأ في السيرفر فقط للمطور
         res.status(500).json({ message: "خطأ في إنشاء الحساب" }); // حماية: عدم إرسال تفاصيل الخطأ التقنية للمستخدم
+    }
+});
+
+// تفعيل الحساب باستخدام OTP
+app.post('/api/auth/verify-email', async (req, res) => {
+    try {
+        const { email, otp } = req.body;
+
+        if (!email || !otp) {
+            return res.status(400).json({ message: "البيانات ناقصة" });
+        }
+
+        // تشفير الرمز المدخل لمقارنته مع المخزن
+        const hashedOtp = crypto.createHash('sha256').update(otp.toString()).digest('hex');
+
+        // البحث في الجدول المؤقت (PendingUser)
+        const pendingUser = await PendingUser.findOne({
+            email,
+            otp: hashedOtp,
+            otpExpires: { $gt: Date.now() } // التأكد أن الرمز لم تنته صلاحيته
+        });
+
+        if (!pendingUser) {
+            return res.status(400).json({ message: "رمز التحقق غير صحيح أو منتهي الصلاحية" });
+        }
+
+        // نقل البيانات من المؤقت إلى الجدول الأساسي (إنشاء الحساب الحقيقي الآن)
+        const newUser = new User({
+            name: pendingUser.name,
+            email: pendingUser.email,
+            password: pendingUser.password,
+            phone: pendingUser.phone,
+            isVerified: true, // الحساب مفعل وجاهز
+            isAdmin: false
+        });
+        await newUser.save();
+
+        // حذف البيانات من الجدول المؤقت
+        await PendingUser.deleteOne({ email });
+
+        // تسجيل الدخول مباشرة بعد التفعيل
+        const token = jwt.sign({ id: newUser._id, email: newUser.email, isAdmin: newUser.isAdmin }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+        res.status(200).json({ 
+            message: "تم تفعيل الحساب بنجاح",
+            token,
+            user: { id: newUser._id, name: newUser.name, email: newUser.email, isAdmin: newUser.isAdmin }
+        });
+
+    } catch (err) {
+        console.error("Verification Error:", err);
+        res.status(500).json({ message: "حدث خطأ أثناء التفعيل" });
     }
 });
 
@@ -626,6 +725,11 @@ app.post('/api/auth/login', async (req, res) => {
         const { email, password } = req.body;
         const user = await User.findOne({ email });
         if (!user) return res.status(400).json({ message: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
+
+        // التحقق من أن الحساب مفعل
+        if (!user.isVerified) {
+            return res.status(400).json({ message: "يرجى تفعيل الحساب أولاً عبر الرمز المرسل لبريدك الإلكتروني" });
+        }
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ message: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
