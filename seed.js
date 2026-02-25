@@ -70,7 +70,9 @@ const userSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     phone: String,
-    isAdmin: { type: Boolean, default: false }
+    isAdmin: { type: Boolean, default: false },
+    passwordResetToken: String,
+    passwordResetExpires: Date
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
@@ -87,13 +89,6 @@ const couponSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const Coupon = mongoose.model('Coupon', couponSchema);
-
-// قالب المشتركين (Subscribers)
-const subscriberSchema = new mongoose.Schema({
-    email: { type: String, required: true, unique: true, trim: true }
-}, { timestamps: true });
-
-const Subscriber = mongoose.model('Subscriber', subscriberSchema);
 
 // قالب الطلبات (Orders)
 const orderSchema = new mongoose.Schema({
@@ -628,7 +623,6 @@ async function seedDatabase() {
         await Wishlist.deleteMany({});
         await User.deleteMany({});
         await Coupon.deleteMany({});
-        await Subscriber.deleteMany({});
         await Order.deleteMany({});
         console.log('🗑️ Old data cleared');
 
@@ -746,13 +740,6 @@ async function seedDatabase() {
         ];
         await Coupon.insertMany(coupons);
         console.log('🎟️ Coupons created: WELCOME10, SAVE50');
-
-        // 6. إدراج المشتركين
-        await Subscriber.insertMany([
-            { email: "subscriber1@test.com" },
-            { email: "subscriber2@test.com" }
-        ]);
-        console.log('📧 Subscribers added');
 
         // 7. إنشاء طلب وهمي للمستخدم العادي
         if (createdProducts.length > 0) {

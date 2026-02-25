@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss-clean');
 const hpp = require('hpp');
+const crypto = require('crypto');
 const morgan = require('morgan');
 
 const app = express();
@@ -57,22 +58,31 @@ const getEmailTemplate = (title, content) => `
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; line-height: 1.6; }
-        .email-container { max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .header { background-color: #000000; color: #ffffff; padding: 30px 20px; text-align: center; }
-        .header h1 { margin: 0; font-size: 28px; letter-spacing: 2px; text-transform: uppercase; }
-        .content { padding: 40px 30px; color: #333333; text-align: right; }
-        .content h2 { color: #000000; margin-top: 0; border-bottom: 2px solid #f4f4f4; padding-bottom: 10px; margin-bottom: 20px; font-size: 20px; }
-        .footer { background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #888888; border-top: 1px solid #eeeeee; }
-        .info-box { background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 4px; padding: 15px; margin: 20px 0; }
-        .label { font-weight: bold; color: #555; }
-        a { color: #000; text-decoration: underline; }
+        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap');
+        body { font-family: 'Tajawal', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; margin: 0; padding: 0; line-height: 1.8; color: #333; }
+        .email-container { max-width: 600px; margin: 30px auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 30px rgba(0,0,0,0.08); }
+        .header { background-color: #ffffff; padding: 40px 20px 20px; text-align: center; border-bottom: 1px solid #f0f0f0; }
+        .header h1 { margin: 0; font-size: 26px; letter-spacing: 4px; color: #000; text-transform: uppercase; font-weight: 800; }
+        .header p { margin: 5px 0 0; font-size: 12px; color: #888; letter-spacing: 2px; text-transform: uppercase; }
+        .content { padding: 40px 30px; text-align: right; background-color: #fff; }
+        .content h2 { color: #111; margin-top: 0; font-size: 20px; font-weight: 700; margin-bottom: 20px; position: relative; display: inline-block; }
+        .content h2::after { content: ''; display: block; width: 40px; height: 3px; background: #000; margin-top: 8px; border-radius: 2px; }
+        .footer { background-color: #f9f9f9; padding: 30px 20px; text-align: center; font-size: 13px; color: #888; border-top: 1px solid #eee; }
+        .info-box { background-color: #f8f9fa; border: 1px dashed #ced4da; border-radius: 8px; padding: 20px; margin: 25px 0; }
+        .label { font-weight: 700; color: #444; }
+        a { color: #000; text-decoration: none; font-weight: 500; }
+        .footer a { color: #666; text-decoration: underline; }
+        @media only screen and (max-width: 600px) {
+            .email-container { margin: 0; border-radius: 0; }
+            .content { padding: 30px 20px; }
+        }
     </style>
 </head>
 <body>
     <div class="email-container">
         <div class="header">
-            <h1>DETAILS STORE</h1>
+            <h1>DETAILS</h1>
+            <p>LUXURY STORE</p>
         </div>
         <div class="content">
             <h2>${title}</h2>
@@ -80,7 +90,7 @@ const getEmailTemplate = (title, content) => `
         </div>
         <div class="footer">
             <p>&copy; ${new Date().getFullYear()} Details Store. جميع الحقوق محفوظة.</p>
-            <p>تواصل معنا: <a href="mailto:support@details-store.com">support@details-store.com</a></p>
+            <p>هل تحتاج مساعدة؟ <a href="mailto:support@details-store.com">تواصل معنا</a></p>
         </div>
     </div>
 </body>
@@ -200,7 +210,9 @@ const userSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     phone: String,
-    isAdmin: { type: Boolean, default: false }
+    isAdmin: { type: Boolean, default: false },
+    passwordResetToken: String,
+    passwordResetExpires: Date
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
@@ -217,13 +229,6 @@ const couponSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const Coupon = mongoose.model('Coupon', couponSchema);
-
-// قالب المشتركين في النشرة البريدية (Subscribers)
-const subscriberSchema = new mongoose.Schema({
-    email: { type: String, required: true, unique: true, trim: true }
-}, { timestamps: true });
-
-const Subscriber = mongoose.model('Subscriber', subscriberSchema);
 
 // قالب الطلبات (Orders)
 const orderSchema = new mongoose.Schema({
@@ -432,34 +437,6 @@ app.post('/api/products', authenticateToken, isAdmin, async (req, res) => {
         const newProduct = new Product({ ...req.body, category: categoryId });
         const savedProduct = await newProduct.save();
 
-        // إرسال إشعار للمشتركين بوجود منتج جديد
-        try {
-            const subscribers = await Subscriber.find({});
-            if (subscribers.length > 0) {
-                const subscriberEmails = subscribers.map(sub => sub.email);
-                
-                const emailContent = `
-                    <div style="text-align: center;">
-                        <img src="${savedProduct.imageUrl}" alt="${savedProduct.name.ar}" style="max-width: 100%; max-height: 300px; object-fit: cover; border-radius: 8px; margin-bottom: 20px;">
-                        <h2 style="color: #333; margin-bottom: 10px;">${savedProduct.name.ar}</h2>
-                        <p style="color: #666; margin-bottom: 15px;">${(savedProduct.description && savedProduct.description.ar) ? savedProduct.description.ar : ''}</p>
-                        <p style="font-size: 24px; font-weight: bold; color: #000; margin-bottom: 20px;">${savedProduct.price} د.أ</p>
-                        <a href="https://details-store.com/products/${savedProduct._id}" style="display: inline-block; background-color: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; margin-bottom: 20px;">تسوق الآن</a>
-                        <p style="color: #888; font-size: 14px;">اكتشف المزيد من التفاصيل في متجرنا</p>
-                    </div>
-                `;
-
-                await sendEmailViaBrevo({
-                    to: "no-reply@details-store.com", // مستلم وهمي لأن Brevo يتطلب حقل To
-                    bcc: subscriberEmails,
-                    subject: `وصل حديثاً: ${savedProduct.name.ar}`,
-                    htmlContent: getEmailTemplate(`منتج جديد: ${savedProduct.name.ar}`, emailContent)
-                });
-            }
-        } catch (emailErr) {
-            console.error("⚠️ Failed to send new product email:", emailErr);
-        }
-
         res.status(201).json(savedProduct);
     } catch (err) {
         res.status(400).json({ message: "بيانات غير صالحة", error: err.message });
@@ -664,6 +641,90 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
+// طلب إعادة تعيين كلمة المرور (نسيت كلمة السر)
+app.post('/api/auth/forgot-password', async (req, res) => {
+    try {
+        // 1. البحث عن المستخدم عن طريق الإيميل
+        const user = await User.findOne({ email: req.body.email });
+        if (!user) {
+            // حماية: حتى لو المستخدم غير موجود، نرسل رسالة نجاح عامة لمنع كشف الإيميلات المسجلة
+            return res.status(200).json({ message: "إذا كان بريدك الإلكتروني مسجلاً لدينا، فستصلك رسالة لإعادة تعيين كلمة المرور." });
+        }
+
+        // 2. إنشاء توكن إعادة التعيين
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+        user.passwordResetExpires = Date.now() + 10 * 60 * 1000; // صلاحية 10 دقائق
+        await user.save();
+
+        // 3. إرسال التوكن إلى إيميل المستخدم
+        // هام: يجب استبدال الرابط التالي برابط صفحة إعادة تعيين كلمة المرور في تطبيق الواجهة الأمامية (Frontend)
+        const resetURL = `https://details-store.com/reset-password/${resetToken}`; 
+        
+        const emailContent = `
+            <p>لقد طلبت إعادة تعيين كلمة المرور الخاصة بك.</p>
+            <p>اضغط على الرابط التالي لإعادة تعيينها. هذا الرابط صالح لمدة 10 دقائق فقط.</p>
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="${resetURL}" style="background-color: #000; color: #fff; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">إعادة تعيين كلمة المرور</a>
+            </div>
+            <p>إذا لم تطلب ذلك، يرجى تجاهل هذه الرسالة.</p>
+        `;
+
+        await sendEmailViaBrevo({
+            to: user.email,
+            subject: 'إعادة تعيين كلمة المرور - Details Store',
+            htmlContent: getEmailTemplate('إعادة تعيين كلمة المرور', emailContent)
+        });
+
+        res.status(200).json({ message: "إذا كان بريدك الإلكتروني مسجلاً لدينا، فستصلك رسالة لإعادة تعيين كلمة المرور." });
+
+    } catch (err) {
+        console.error("Forgot Password Error:", err);
+        res.status(500).json({ message: "حدث خطأ، يرجى المحاولة مرة أخرى." });
+    }
+});
+
+// إعادة تعيين كلمة المرور باستخدام التوكن
+app.post('/api/auth/reset-password/:token', async (req, res) => {
+    try {
+        // 1. تشفير التوكن القادم من الرابط لمقارنته مع المخزن في قاعدة البيانات
+        const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
+
+        // 2. البحث عن المستخدم بالتوكن والتأكد من أن التوكن لم تنتهِ صلاحيته
+        const user = await User.findOne({
+            passwordResetToken: hashedToken,
+            passwordResetExpires: { $gt: Date.now() } // أكبر من الوقت الحالي
+        });
+
+        if (!user) {
+            return res.status(400).json({ message: "الرابط غير صالح أو انتهت صلاحيته." });
+        }
+
+        const { password } = req.body;
+        if (!password || password.length < 6) {
+            return res.status(400).json({ message: "كلمة المرور يجب أن تكون 6 أحرف على الأقل." });
+        }
+
+        user.password = await bcrypt.hash(password, 10);
+        user.passwordResetToken = undefined;
+        user.passwordResetExpires = undefined;
+        await user.save();
+
+        // 7. إنشاء توكن جديد لتسجيل دخول المستخدم تلقائياً بعد التغيير
+        const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+        res.json({
+            message: "تم تغيير كلمة المرور بنجاح.",
+            token,
+            user: { id: user._id, name: user.name, email: user.email, isAdmin: user.isAdmin }
+        });
+
+    } catch (err) {
+        console.error("Reset Password Error:", err);
+        res.status(500).json({ message: "حدث خطأ أثناء إعادة تعيين كلمة المرور." });
+    }
+});
+
 // التحقق من صحة التوكن (للدخول التلقائي)
 app.get('/api/auth/validate-token', authenticateToken, async (req, res) => {
     try {
@@ -763,87 +824,6 @@ app.post('/api/coupons/validate', async (req, res) => {
         });
     } catch (err) {
         res.status(500).json({ message: "خطأ في السيرفر" });
-    }
-});
-
-// --- روابط النشرة البريدية (Newsletter) ---
-
-app.post('/api/subscribe', async (req, res) => {
-    try {
-        const { email } = req.body;
-        if (!email) return res.status(400).json({ message: "البريد الإلكتروني مطلوب" });
-
-        const existing = await Subscriber.findOne({ email });
-        if (existing) return res.status(400).json({ message: "هذا البريد مشترك بالفعل" });
-
-        await new Subscriber({ email }).save();
-        res.status(201).json({ message: "تم الاشتراك بنجاح" });
-    } catch (err) {
-        res.status(500).json({ message: "خطأ في الاشتراك" });
-    }
-});
-
-// جلب المشتركين (للأدمن فقط)
-app.get('/api/admin/subscribers', authenticateToken, isAdmin, async (req, res) => {
-    try {
-        const subscribers = await Subscriber.find().sort({ createdAt: -1 });
-        res.status(200).json(subscribers);
-    } catch (err) {
-        res.status(500).json({ message: "خطأ في جلب المشتركين" });
-    }
-});
-
-// إرسال بريد إلكتروني جماعي للمشتركين (للأدمن فقط) عبر Brevo
-app.post('/api/admin/send-email', authenticateToken, isAdmin, async (req, res) => {
-    try {
-        const { subject, message } = req.body;
-        
-        // التحقق من المدخلات
-        if (!subject || !message) {
-            return res.status(400).json({ message: "الموضوع والرسالة مطلوبان" });
-        }
-
-        // جلب جميع إيميلات المشتركين
-        const subscribers = await Subscriber.find({});
-        if (subscribers.length === 0) {
-            return res.status(400).json({ message: "لا يوجد مشتركين لإرسال الرسالة لهم" });
-        }
-
-        // تجهيز قائ//مة المستلمين لـ Brevo (نستخدمها في bcc لإخفاء الإيميلات)
-        const bccList = subscribers.map(sub => ({ email: sub.email }));
-
-        // تجهيز البيانات بصيغة يقبلها Brevo API
-        const payload = {
-            sender: { name: "Details Store", email: "no-reply@details-store.com" },
-            to: [{ email: "no-reply@details-store.com", name: "Details Store" }],  
-             bcc: bccList, // جميع المشتركين في النسخة المخفية
-            subject: subject,
-            htmlContent: getEmailTemplate(subject, `<p>${message.replace(/\n/g, '<br>')}</p>`)
-        };
-
-        // إرسال الطلب إلى سيرفرات Brevo
-        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                'api-key': process.env.BREVO_API_KEY // مفتاح الـ API
-            },
-            body: JSON.stringify(payload)
-        });
-
-        // التحقق من حالة الإرسال
-        if (!response.ok) {
-            const errorData = await response.json();
-            console.error("❌ خطأ من Brevo أثناء إرسال النشرة:", errorData);
-            return res.status(500).json({ message: "فشل إرسال النشرة البريدية من الخادم" });
-        }
-
-        res.status(200).json({ message: `تم إرسال البريد الإلكتروني إلى ${subscribers.length} مشترك بنجاح` });
-        
-    } catch (err) {
-        console.error("❌ خطأ في السيرفر أثناء إرسال البريد الجماعي:", err);
-        res.status(500).json({ message: "حدث خطأ غير متوقع، يرجى مراجعة سجلات السيرفر" });
     }
 });
 
