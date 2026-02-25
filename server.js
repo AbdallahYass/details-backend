@@ -658,7 +658,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
         await user.save();
 
         // 3. إرسال التوكن إلى إيميل المستخدم
-        // هام: يجب استبدال الرابط التالي برابط صفحة إعادة تعيين كلمة المرور في تطبيق الواجهة الأمامية (Frontend)
         const resetURL = `https://details-store.com/reset-password/${resetToken}`; 
         
         const emailContent = `
