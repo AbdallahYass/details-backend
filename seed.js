@@ -108,6 +108,17 @@ const orderSchema = new mongoose.Schema({
 
 const Order = mongoose.model('Order', orderSchema);
 
+// قالب الإشعارات (Notifications)
+const notificationSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    title: { type: String, required: true },
+    message: { type: String, required: true },
+    isRead: { type: Boolean, default: false },
+    type: { type: String, default: 'system' } // system, order, promo
+}, { timestamps: true });
+
+const Notification = mongoose.model('Notification', notificationSchema);
+
 // 2. الاتصال (MongoDB Atlas)
 const dbURI = "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/DetailsStoreDB?appName=DetailsCluster";
 
@@ -627,6 +638,7 @@ async function seedDatabase() {
         await User.deleteMany({});
         await Coupon.deleteMany({});
         await Order.deleteMany({});
+        await Notification.deleteMany({});
         console.log('🗑️ Old data cleared');
 
         let createdCategories = [];

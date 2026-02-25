@@ -279,6 +279,17 @@ const orderSchema = new mongoose.Schema({
 
 const Order = mongoose.model('Order', orderSchema);
 
+// قالب الإشعارات (Notifications)
+const notificationSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    title: { type: String, required: true },
+    message: { type: String, required: true },
+    isRead: { type: Boolean, default: false }, // هل قرأ المستخدم الإشعار؟
+    type: { type: String, default: 'system' } // نوع الإشعار: system, order, promo
+}, { timestamps: true });
+
+const Notification = mongoose.model('Notification', notificationSchema);
+
 // --- Middleware للحماية (Authentication & Authorization) ---
 
 const authenticateToken = (req, res, next) => {
@@ -1053,6 +1064,49 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
     }
 });
 
+// --- روابط الإشعارات (Notifications) ---
+
+// جلب إشعارات المستخدم الحالي
+app.get('/api/notifications', authenticateToken, async (req, res) => {
+    try {
+        const notifications = await Notification.find({ userId: req.user.id })
+            .sort({ createdAt: -1 }); // الأحدث أولاً
+        res.status(200).json(notifications);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في جلب الإشعارات" });
+    }
+});
+
+// تحديد إشعار كمقروء
+app.put('/api/notifications/:id/read', authenticateToken, async (req, res) => {
+    try {
+        await Notification.findByIdAndUpdate(req.params.id, { isRead: true });
+        res.status(200).json({ message: "تم تحديث حالة الإشعار" });
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في تحديث الإشعار" });
+    }
+});
+
+// إرسال إشعار عام لجميع المستخدمين (للأدمن فقط)
+app.post('/api/admin/notifications/broadcast', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { title, message } = req.body;
+        const users = await User.find({}, '_id'); // جلب جميع معرفات المستخدمين
+
+        const notifications = users.map(user => ({
+            userId: user._id,
+            title,
+            message,
+            type: 'promo'
+        }));
+
+        await Notification.insertMany(notifications);
+        res.status(200).json({ message: `تم إرسال الإشعار إلى ${users.length} مستخدم` });
+    } catch (err) {
+        res.status(500).json({ message: "فشل إرسال الإشعارات" });
+    }
+});
+
 // --- روابط إدارة الطلبات (Admin Orders) ---
 
 // جلب جميع الطلبات (للأدمن فقط)
@@ -1081,6 +1135,18 @@ app.put('/api/admin/orders/:id/status', authenticateToken, isAdmin, async (req, 
             { status: status },
             { new: true }
         );
+
+        // إنشاء إشعار للمستخدم عند تغيير حالة الطلب
+        if (order) {
+            const notification = new Notification({
+                userId: order.userId,
+                title: "تحديث حالة الطلب",
+                message: `تم تغيير حالة طلبك رقم #${order._id.toString().slice(-6)} إلى: ${status}`,
+                type: 'order'
+            });
+            await notification.save();
+        }
+
         res.json(order);
     } catch (err) {
         res.status(500).json({ message: "فشل تحديث حالة الطلب" });
