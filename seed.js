@@ -25,6 +25,14 @@ const productSchema = new mongoose.Schema({
     sizes: [{
         size: { type: String, required: true },
         quantity: { type: Number, default: 0 }
+    }],
+    colors: [{
+        name: { 
+            ar: { type: String },
+            en: { type: String }
+        },
+        hex: String,
+        imageUrl: String
     }]
 }, { timestamps: true });
 
@@ -702,7 +710,19 @@ async function seedDatabase() {
                         featured: i === 0 ? true : (template.featured && i < templates.length),
                         popularity: Math.floor(Math.random() * 500),
                         quantity: 50, // كمية إجمالية
-                        sizes: sizes
+                        sizes: sizes,
+                        colors: [
+                            { 
+                                name: { ar: "اللون الأصلي", en: "Original" }, 
+                                hex: "#333333", 
+                                imageUrl: template.imageUrl 
+                            },
+                            { 
+                                name: { ar: "لون بديل", en: "Variant" }, 
+                                hex: "#888888", 
+                                imageUrl: template.images && template.images.length > 0 ? template.images[0] : template.imageUrl 
+                            }
+                        ]
                     };
                     
                     productsToInsert.push(newProduct);

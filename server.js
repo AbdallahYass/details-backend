@@ -161,6 +161,14 @@ const productSchema = new mongoose.Schema({
     sizes: [{
         size: { type: String, required: true },
         quantity: { type: Number, default: 0 }
+    }],
+    colors: [{
+        name: { 
+            ar: { type: String },
+            en: { type: String }
+        },
+        hex: String, // كود اللون للعرض في التطبيق
+        imageUrl: String // صورة خاصة بهذا اللون
     }]
 }, { timestamps: true });
 
@@ -254,7 +262,8 @@ const orderSchema = new mongoose.Schema({
         quantity: Number,
         price: Number,
         imageUrl: String,
-        size: String
+        size: String,
+        color: String // لحفظ اللون المختار في الطلب
     }],//
     subtotal: { type: Number, required: true }, // المجموع قبل الخصم
     discountAmount: { type: Number, default: 0 }, // قيمة الخصم
