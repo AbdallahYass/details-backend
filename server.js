@@ -262,7 +262,7 @@ const orderSchema = new mongoose.Schema({
         quantity: Number,
         price: Number,
         imageUrl: String,
-        size: String,
+        size: String,//
         color: String
     }],
     subtotal: { type: Number, required: true }, // المجموع قبل الخصم
