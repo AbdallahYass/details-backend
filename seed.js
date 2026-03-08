@@ -791,16 +791,18 @@ async function seedDatabase() {
                         title: p1.name.en,
                         quantity: 1,
                         price: p1.price,
-                        imageUrl: p1.imageUrl,
-                        size: p1.sizes[0]?.size || 'Standard'
+                        imageUrl: p1.colors[0].imageUrl, // نستخدم صورة اللون المختار
+                        size: p1.sizes[0]?.size || 'Standard',
+                        color: p1.colors[0].name.en // نحفظ اسم اللون
                     },
                     {
                         id: p2._id.toString(),
                         title: p2.name.en,
                         quantity: 2,
                         price: p2.price,
-                        imageUrl: p2.imageUrl,
-                        size: p2.sizes[0]?.size || 'Standard'
+                        imageUrl: p2.colors[1].imageUrl, // نستخدم صورة اللون البديل (Variant)
+                        size: p2.sizes[0]?.size || 'Standard',
+                        color: p2.colors[1].name.en
                     }
                 ],
                 subtotal: p1.price + (p2.price * 2),

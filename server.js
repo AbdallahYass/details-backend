@@ -11,10 +11,12 @@ const xss = require('xss-clean');
 const hpp = require('hpp');
 const crypto = require('crypto');
 const morgan = require('morgan');
+const { OAuth2Client } = require('google-auth-library');
 
 const app = express();
 app.set('trust proxy', 1); // ثق في البروكسي الأول (ضروري للاستضافة على Render لإصلاح خطأ Rate Limit)
 const PORT = process.env.PORT || 3000;
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // 1. Middleware
 app.use(helmet()); // إضافة ترويسات أمان HTTP لحماية التطبيق
@@ -216,7 +218,9 @@ const Wishlist = mongoose.model('Wishlist', wishlistSchema);
 const userSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
+    password: { type: String },
+    googleId: { type: String },
+    avatar: { type: String }, 
     phone: String,
     isAdmin: { type: Boolean, default: false },
     passwordResetToken: String,
@@ -845,6 +849,69 @@ app.post('/api/auth/reset-password/:token', async (req, res) => {
     } catch (err) {
         console.error("Reset Password Error:", err);
         res.status(500).json({ message: "حدث خطأ أثناء إعادة تعيين كلمة المرور." });
+    }
+});
+
+// رابط تسجيل الدخول عبر جوجل (جديد)
+app.post('/api/auth/google', async (req, res) => {
+    try {
+        const { idToken } = req.body;
+
+        if (!idToken) {
+            return res.status(400).json({ message: "توكن جوجل مفقود" });
+        }
+
+        // 1. التحقق من التوكن مع سيرفرات جوجل
+        const ticket = await googleClient.verifyIdToken({
+            idToken: idToken,
+            audience: process.env.GOOGLE_CLIENT_ID, 
+        });
+
+        const payload = ticket.getPayload();
+        const { email, name, picture, sub: googleId } = payload;
+
+        // 2. البحث عن المستخدم أو إنشاؤه
+        let user = await User.findOne({ email });
+
+        if (user) {
+            // تحديث بيانات جوجل إذا لم تكن موجودة
+            if (!user.googleId) {
+                user.googleId = googleId;
+                user.avatar = picture;
+                user.isVerified = true; // مستخدم جوجل موثق تلقائياً
+                await user.save();
+            }
+        } else {
+            // إنشاء مستخدم جديد تماماً
+            user = new User({
+                name,
+                email,
+                googleId,
+                avatar: picture,
+                isVerified: true,
+                isAdmin: false,
+                // نضع كلمة مرور عشوائية مستحيلة التخمين لأنه لن يستخدمها
+                password: await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10)
+            });
+            await user.save();
+        }
+
+        // 3. إنشاء توكن JWT الخاص بمتجرك
+        const token = jwt.sign(
+            { id: user._id, email: user.email, isAdmin: user.isAdmin }, 
+            process.env.JWT_SECRET, 
+            { expiresIn: '7d' }
+        );
+
+        res.status(200).json({
+            message: "تم تسجيل الدخول بجوجل بنجاح",
+            token,
+            user: { id: user._id, name: user.name, email: user.email, isAdmin: user.isAdmin, avatar: user.avatar }
+        });
+
+    } catch (err) {
+        console.error("Google Auth Error:", err);
+        res.status(401).json({ message: "فشل التحقق من حساب جوجل" });
     }
 });
 
