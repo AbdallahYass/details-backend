@@ -305,17 +305,21 @@ const Notification = mongoose.model('Notification', notificationSchema);
 
 // --- Middleware للحماية (Authentication & Authorization) ---
 
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     if (!token) return res.status(401).json({ message: "يرجى تسجيل الدخول أولاً" });
 
-    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-        if (err) {
-            console.error("JWT Verification Error:", err.message);
-            return res.status(403).json({ message: "الجلسة انتهت، يرجى إعادة تسجيل الدخول" });
+    jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
+        if (err) return res.status(403).json({ message: "الجلسة انتهت" });
+        
+        // فحص إضافي: هل المستخدم ما زال موجوداً في الداتا بيس؟
+        const userExists = await User.findById(decoded.id);
+        if (!userExists) {
+            return res.status(401).json({ message: "هذا الحساب لم يعد موجوداً" });
         }
-        req.user = user;
+
+        req.user = decoded;
         next();
     });
 };
