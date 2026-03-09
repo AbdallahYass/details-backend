@@ -762,7 +762,14 @@ app.post('/api/auth/login', async (req, res) => {
 
         res.json({ 
             token, 
-            user: { id: user._id, name: user.name, email: user.email, isAdmin: user.isAdmin } 
+            user: { 
+                id: user._id, 
+                name: user.name, 
+                email: user.email, 
+                isAdmin: user.isAdmin,
+                phone: user.phone,
+                avatar: user.avatar
+            } 
         });
     } catch (err) {
         res.status(500).json({ message: "خطأ في تسجيل الدخول" });
@@ -904,9 +911,15 @@ app.post('/api/auth/google', async (req, res) => {
         );
 
         res.status(200).json({
-            message: "تم تسجيل الدخول بجوجل بنجاح",
             token,
-            user: { id: user._id, name: user.name, email: user.email, isAdmin: user.isAdmin, avatar: user.avatar }
+            user: { 
+                id: user._id, 
+                name: user.name, 
+                email: user.email, 
+                isAdmin: user.isAdmin, 
+                avatar: user.avatar,
+                phone: user.phone
+            }
         });
 
     } catch (err) {
