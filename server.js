@@ -889,18 +889,10 @@ app.post('/api/auth/google', async (req, res) => {
                 await user.save();
             }
         } else {
-            // إنشاء مستخدم جديد تماماً
-            user = new User({
-                name,
-                email,
-                googleId,
-                avatar: picture,
-                isVerified: true,
-                isAdmin: false,
-                // نضع كلمة مرور عشوائية مستحيلة التخمين لأنه لن يستخدمها
-                password: await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10)
-            });
-            await user.save();
+            // تعديل هام: منع الإنشاء التلقائي للحساب (Auto Register)
+            // هذا يسمح للتطبيق باكتشاف أن الحساب غير موجود (أو محذوف)
+            // وبالتالي تفعيل كود signOut() في Flutter لكسر حلقة الدخول التلقائي
+            return res.status(404).json({ message: "حساب المستخدم غير موجود، يرجى التسجيل أولاً" });
         }
 
         // 3. إنشاء توكن JWT الخاص بمتجرك
