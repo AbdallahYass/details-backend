@@ -346,58 +346,79 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-
-// جلب الكل (مع دعم البحث والتصنيف)
+// جلب الكل (مع دعم البحث الضبابي الذكي والتصنيف)
 app.get('/api/products', async (req, res) => {
     try {
         const { category, search, minPrice, maxPrice, sort } = req.query;
-        let query = {};
+        let pipeline = [];
+        let matchStage = {};
 
-        // 1. تصفية حسب التصنيف
+        // 1. مرحلة البحث الذكي (يجب أن تكون أول خطوة في الـ Pipeline إذا كان هناك بحث)
+        if (search) {
+            pipeline.push({
+                $search: {
+                    index: "product_search", // اسم الفهرس الذي أنشأناه في Atlas
+                    text: {
+                        query: search,
+                        path: ["name.ar", "name.en", "description.ar", "description.en"],
+                        fuzzy: {
+                            maxEdits: 2, // التسامح مع خطأين إملائيين (مثل: ساعع -> ساعة)
+                            prefixLength: 1 // يجب تطابق الحرف الأول لضمان سرعة البحث
+                        }
+                    }
+                }
+            });
+        }
+
+        // 2. تصفية حسب التصنيف (Category)
         if (category) {
             const categoryDoc = await Category.findOne({ slug: category });
-            if (!categoryDoc) return res.status(200).json([]);
-            query.category = categoryDoc._id;
+            if (!categoryDoc) return res.status(200).json([]); // إذا لم يوجد التصنيف، نرجع مصفوفة فارغة
+            matchStage.category = categoryDoc._id;
         }
 
-        // 2. تصفية حسب البحث (بالاسم العربي أو الإنجليزي)
-        if (search) {
-            query.$or = [
-                { 'name.ar': { $regex: search, $options: 'i' } },
-                { 'name.en': { $regex: search, $options: 'i' } }
-            ];
-        }
-
-        // 3. تصفية حسب السعر (الجديد)
+        // 3. تصفية حسب السعر
         if (minPrice || maxPrice) {
-            query.price = {};
-            if (minPrice) query.price.$gte = Number(minPrice);
-            if (maxPrice) query.price.$lte = Number(maxPrice);
+            matchStage.price = {};
+            if (minPrice) matchStage.price.$gte = Number(minPrice);
+            if (maxPrice) matchStage.price.$lte = Number(maxPrice);
         }
 
-        // بناء الاستعلام
-        let productsQuery = Product.find(query);
+        // إذا كان هناك شروط (تصنيف أو سعر)، نضيف مرحلة $match
+        if (Object.keys(matchStage).length > 0) {
+            pipeline.push({ $match: matchStage });
+        }
 
-        // 4. الترتيب (الجديد)
-        if (sort) {
-            switch (sort) {
-                case 'price_asc': // من الأقل للأعلى
-                    productsQuery = productsQuery.sort({ price: 1 });
-                    break;
-                case 'price_desc': // من الأعلى للأقل
-                    productsQuery = productsQuery.sort({ price: -1 });
-                    break;
-                case 'newest': // الأحدث
-                default:
-                    productsQuery = productsQuery.sort({ createdAt: -1 });
+        // 4. الترتيب
+        let sortStage = { createdAt: -1 }; // الترتيب الافتراضي (الأحدث)
+        if (sort === 'price_asc') sortStage = { price: 1 };
+        if (sort === 'price_desc') sortStage = { price: -1 };
+        
+        // إذا كان المستخدم لا يبحث عن شيء، نرتب حسب اختياره.
+        // أما إذا كان يبحث، فمن الأفضل ترك الترتيب لمحرك Atlas (لأنه يرتب حسب "الأكثر تطابقاً" مع الكلمة).
+        if (!search) {
+            pipeline.push({ $sort: sortStage });
+        }
+
+        // 5. محاكاة دالة populate('category') باستخدام $lookup في الـ Aggregation
+        pipeline.push({
+            $lookup: {
+                from: "categories", // اسم جدول التصنيفات في قاعدة البيانات
+                localField: "category",
+                foreignField: "_id",
+                as: "category"
             }
-        } else {
-            productsQuery = productsQuery.sort({ createdAt: -1 });
-        }
+        });
+        pipeline.push({
+            $unwind: { path: "$category", preserveNullAndEmptyArrays: true }
+        });
 
-        const products = await productsQuery.populate('category');
+        // تنفيذ الاستعلام وإرسال النتائج
+        const products = await Product.aggregate(pipeline);
         res.status(200).json(products);
+
     } catch (err) {
+        console.error("Search Error:", err);
         res.status(500).json({ message: "خطأ في جلب البيانات", error: err.message });
     }
 });
@@ -410,79 +431,6 @@ app.get('/api/products/:id', async (req, res) => {
         res.json(product);
     } catch (err) {
         res.status(500).json({ message: "خطأ في السيرفر" });
-    }
-});
-
-// إضافة منتج جديد
-app.post('/api/products', authenticateToken, isAdmin, async (req, res) => {
-    try {
-        let categoryId;
-        const { category } = req.body;
-
-        // منطق ذكي للتعامل مع التصنيف (Category)
-        if (category && typeof category === 'object' && category.slug) {
-            // 1. إذا تم إرسال كائن تصنيف كامل (لإنشاء تصنيف مخصص فوراً)
-            let existingCategory = await Category.findOne({ slug: category.slug });
-            if (existingCategory) {
-                categoryId = existingCategory._id;
-            } else {
-                const newCategory = new Category({
-                    imageUrl: "https://placehold.co/600x400?text=Category", // صورة افتراضية
-                    ...category
-                });
-                const savedCategory = await newCategory.save();
-                categoryId = savedCategory._id;
-            }
-        } else if (typeof category === 'string') {
-            // 2. إذا تم إرسال نص (ID أو اسم التصنيف)
-            const categoryInput = category.trim();
-
-            // أ) التحقق مما إذا كان ID صالح وموجود مسبقاً
-            if (mongoose.Types.ObjectId.isValid(categoryInput)) {
-                const exists = await Category.exists({ _id: categoryInput });
-                if (exists) categoryId = categoryInput;
-            }
-
-            // ب) إذا لم يكن ID، نعامله كاسم/Slug وننشئه تلقائياً إذا لم يوجد
-            if (!categoryId) {
-                const slug = categoryInput.toLowerCase().replace(/\s+/g, '-');
-                
-                // البحث عن التصنيف بالاسم أو الـ Slug لتجنب التكرار
-                let existingCategory = await Category.findOne({
-                    $or: [
-                        { slug: slug },
-                        { 'name.ar': categoryInput },
-                        { 'name.en': { $regex: new RegExp(`^${categoryInput}$`, 'i') } }
-                    ]
-                });
-                
-                if (existingCategory) {
-                    categoryId = existingCategory._id;
-                } else {
-                    // إنشاء تصنيف جديد تلقائياً
-                    const newCategory = new Category({
-                        name: { ar: categoryInput, en: categoryInput }, // نستخدم نفس الاسم للغتين مؤقتاً
-                        slug: slug,
-                        imageUrl: `https://placehold.co/600x400?text=${encodeURIComponent(categoryInput)}`
-                    });
-                    const savedCategory = await newCategory.save();
-                    categoryId = savedCategory._id;
-                }
-            }
-        }
-
-        // تحقق أمان إضافي: التأكد من وجود ID للتصنيف قبل الحفظ
-        if (!categoryId) {
-            return res.status(400).json({ message: "التصنيف مطلوب (Category is required)" });
-        }
-
-        // إنشاء المنتج مع ربط الـ ID الصحيح للتصنيف
-        const newProduct = new Product({ ...req.body, category: categoryId });
-        const savedProduct = await newProduct.save();
-
-        res.status(201).json(savedProduct);
-    } catch (err) {
-        res.status(400).json({ message: "بيانات غير صالحة", error: err.message });
     }
 });
 
@@ -1321,8 +1269,6 @@ app.get('/api/popular-products', async (req, res) => {
         res.status(500).json({ message: "خطأ في جلب المنتجات الأكثر طلباً", error: err.message });
     }
 });
-
-
 
 // 5. تشغيل السيرفر
 app.listen(PORT, () => {
