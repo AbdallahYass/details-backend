@@ -867,12 +867,8 @@ app.post('/api/auth/reset-password/:token', async (req, res) => {
 app.post('/api/auth/google', async (req, res) => {
     try {
         const { idToken } = req.body;
+        if (!idToken) return res.status(400).json({ message: "توكن جوجل مفقود" });
 
-        if (!idToken) {
-            return res.status(400).json({ message: "توكن جوجل مفقود" });
-        }
-
-        // 1. التحقق من التوكن مع سيرفرات جوجل
         const ticket = await googleClient.verifyIdToken({
             idToken: idToken,
             audience: process.env.GOOGLE_CLIENT_ID, 
@@ -881,25 +877,31 @@ app.post('/api/auth/google', async (req, res) => {
         const payload = ticket.getPayload();
         const { email, name, picture, sub: googleId } = payload;
 
-        // 2. البحث عن المستخدم أو إنشاؤه
         let user = await User.findOne({ email });
 
         if (user) {
-            // تحديث بيانات جوجل إذا لم تكن موجودة
+            // 1. إذا المستخدم موجود، نحدث بياناته وندخله
             if (!user.googleId) {
                 user.googleId = googleId;
                 user.avatar = picture;
-                user.isVerified = true; // مستخدم جوجل موثق تلقائياً
+                user.isVerified = true;
                 await user.save();
             }
         } else {
-            // تعديل هام: منع الإنشاء التلقائي للحساب (Auto Register)
-            // هذا يسمح للتطبيق باكتشاف أن الحساب غير موجود (أو محذوف)
-            // وبالتالي تفعيل كود signOut() في Flutter لكسر حلقة الدخول التلقائي
-            return res.status(404).json({ message: "حساب المستخدم غير موجود، يرجى التسجيل أولاً" });
+            // 2. الحل هنا: إذا الحساب مش موجود، ننشئه فوراً (Auto Register)
+            user = new User({
+                name: name,
+                email: email,
+                googleId: googleId,
+                avatar: picture,
+                isVerified: true, // حساب جوجل يعتبر مفعل تلقائياً
+                password: await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10) // كلمة سر عشوائية
+            });
+            await user.save();
+            console.log(`✅ حساب جديد تم إنشاؤه عبر جوجل: ${email}`);
         }
 
-        // 3. إنشاء توكن JWT الخاص بمتجرك
+        // إنشاء التوكن الخاص بنا
         const token = jwt.sign(
             { id: user._id, email: user.email, isAdmin: user.isAdmin }, 
             process.env.JWT_SECRET, 
