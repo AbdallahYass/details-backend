@@ -540,6 +540,81 @@ const luxuryProducts = [
         price: 200.0, brand: "Details", dimensions: "Standard", category: "gifts",
         imageUrl: "https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&q=80&w=800",
         images: ["https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&q=80&w=800"]
+    },
+    // Gaming
+    {
+        name: { en: "PlayStation 5 Controller", ar: "يد تحكم بلايستيشن 5" },
+        description: { ar: "تحكم لاسلكي دوال سينس.", en: "DualSense wireless controller." },
+        price: 70.0, brand: "Sony", dimensions: "Standard", category: "gaming",
+        imageUrl: "https://images.unsplash.com/photo-1606318801954-d46d46d3360a?auto=format&fit=crop&q=80&w=800",
+        images: ["https://images.unsplash.com/photo-1606318801954-d46d46d3360a?auto=format&fit=crop&q=80&w=800"]
+    },
+    {
+        name: { en: "Gaming Headset", ar: "سماعة ألعاب محيطية" },
+        description: { ar: "صوت محيطي عالي الدقة.", en: "High fidelity surround sound." },
+        price: 120.0, brand: "Razer", dimensions: "Standard", category: "gaming",
+        imageUrl: "https://images.unsplash.com/photo-1612287230217-969b698cb8d1?auto=format&fit=crop&q=80&w=800",
+        images: ["https://images.unsplash.com/photo-1612287230217-969b698cb8d1?auto=format&fit=crop&q=80&w=800"]
+    },
+    // Sports
+    {
+        name: { en: "Yoga Mat Premium", ar: "سجادة يوغا فاخرة" },
+        description: { ar: "سجادة غير قابلة للانزلاق.", en: "Non-slip yoga mat." },
+        price: 45.0, brand: "Lululemon", dimensions: "180x60cm", category: "sports",
+        imageUrl: "https://images.unsplash.com/photo-1601925260368-ae2f83cf8b7f?auto=format&fit=crop&q=80&w=800",
+        images: ["https://images.unsplash.com/photo-1601925260368-ae2f83cf8b7f?auto=format&fit=crop&q=80&w=800"]
+    },
+    {
+        name: { en: "Adjustable Dumbbells", ar: "أثقال قابلة للتعديل" },
+        description: { ar: "مجموعة أثقال منزلية.", en: "Home workout dumbbell set." },
+        price: 150.0, brand: "Bowflex", dimensions: "Standard", category: "sports",
+        imageUrl: "https://images.unsplash.com/photo-1584735175097-719d848f8449?auto=format&fit=crop&q=80&w=800",
+        images: ["https://images.unsplash.com/photo-1584735175097-719d848f8449?auto=format&fit=crop&q=80&w=800"]
+    },
+    // Beauty
+    {
+        name: { en: "Luxury Lipstick Set", ar: "مجموعة أحمر شفاه" },
+        description: { ar: "ألوان ثابتة وجذابة.", en: "Long-lasting attractive colors." },
+        price: 85.0, brand: "MAC", dimensions: "Standard", category: "beauty",
+        imageUrl: "https://images.unsplash.com/photo-1586495777744-4413f21062fa?auto=format&fit=crop&q=80&w=800",
+        images: ["https://images.unsplash.com/photo-1586495777744-4413f21062fa?auto=format&fit=crop&q=80&w=800"]
+    },
+    {
+        name: { en: "Face Serum", ar: "سيروم للوجه" },
+        description: { ar: "للعناية بالبشرة والنضارة.", en: "For skin care and glow." },
+        price: 110.0, brand: "Estee Lauder", dimensions: "50ml", category: "beauty",
+        imageUrl: "https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&q=80&w=800",
+        images: ["https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&q=80&w=800"]
+    },
+    // Kids
+    {
+        name: { en: "Plush Teddy Bear", ar: "دب محشو كبير" },
+        description: { ar: "لعبة ناعمة للأطفال.", en: "Soft toy for kids." },
+        price: 40.0, brand: "Details", dimensions: "50cm", category: "kids",
+        imageUrl: "https://images.unsplash.com/photo-1559454403-b8fb87521bc7?auto=format&fit=crop&q=80&w=800",
+        images: ["https://images.unsplash.com/photo-1559454403-b8fb87521bc7?auto=format&fit=crop&q=80&w=800"]
+    },
+    {
+        name: { en: "Building Blocks Set", ar: "مجموعة مكعبات بناء" },
+        description: { ar: "تنمي مهارات الإبداع.", en: "Develops creativity skills." },
+        price: 65.0, brand: "Lego", dimensions: "Standard", category: "kids",
+        imageUrl: "https://images.unsplash.com/photo-1587654780291-39c940483713?auto=format&fit=crop&q=80&w=800",
+        images: ["https://images.unsplash.com/photo-1587654780291-39c940483713?auto=format&fit=crop&q=80&w=800"]
+    },
+    // Office
+    {
+        name: { en: "Leather Notebook", ar: "دفتر ملاحظات جلدي" },
+        description: { ar: "ورق عالي الجودة.", en: "High quality paper." },
+        price: 35.0, brand: "Moleskine", dimensions: "A5", category: "office",
+        imageUrl: "https://images.unsplash.com/photo-1544816155-12df9643f363?auto=format&fit=crop&q=80&w=800",
+        images: ["https://images.unsplash.com/photo-1544816155-12df9643f363?auto=format&fit=crop&q=80&w=800"]
+    },
+    {
+        name: { en: "Desk Lamp", ar: "مصباح مكتب" },
+        description: { ar: "إضاءة LED مريحة للعين.", en: "Eye-friendly LED lighting." },
+        price: 55.0, brand: "Xiaomi", dimensions: "Standard", category: "office",
+        imageUrl: "https://images.unsplash.com/photo-1534234828563-025317354318?auto=format&fit=crop&q=80&w=800",
+        images: ["https://images.unsplash.com/photo-1534234828563-025317354318?auto=format&fit=crop&q=80&w=800"]
     }
 ];
 
@@ -632,6 +707,31 @@ const categories = [
         slug: "gifts",
         imageUrl: "https://images.unsplash.com/photo-1549465220-1a8b9238cd48?auto=format&fit=crop&q=80&w=800"
     },
+    {
+        name: { ar: "ألعاب فيديو", en: "Gaming" },
+        slug: "gaming",
+        imageUrl: "https://images.unsplash.com/photo-1593640408182-31c70c8268f5?auto=format&fit=crop&q=80&w=800"
+    },
+    {
+        name: { ar: "رياضة", en: "Sports" },
+        slug: "sports",
+        imageUrl: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&q=80&w=800"
+    },
+    {
+        name: { ar: "جمال وعناية", en: "Beauty" },
+        slug: "beauty",
+        imageUrl: "https://images.unsplash.com/photo-1596462502278-27bfdd403348?auto=format&fit=crop&q=80&w=800"
+    },
+    {
+        name: { ar: "أطفال", en: "Kids" },
+        slug: "kids",
+        imageUrl: "https://images.unsplash.com/photo-1566576912902-4b688681657a?auto=format&fit=crop&q=80&w=800"
+    },
+    {
+        name: { ar: "مكتب", en: "Office" },
+        slug: "office",
+        imageUrl: "https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&q=80&w=800"
+    },
 ];
 
 async function seedDatabase() {
@@ -673,8 +773,8 @@ async function seedDatabase() {
             const templates = productsByCategory[cat.slug] || [];
             
             if (templates.length > 0) {
-                // توليد 15 منتج لكل قسم
-                for (let i = 0; i < 15; i++) {
+                // توليد 40 منتج لكل قسم (لزيادة العدد الإجمالي للتجارب)
+                for (let i = 0; i < 40; i++) {
                     const template = templates[i % templates.length];
                     const suffix = i >= templates.length ? ` ${Math.floor(i / templates.length) + 1}` : "";
 
@@ -731,7 +831,7 @@ async function seedDatabase() {
         }
 
         const createdProducts = await Product.insertMany(productsToInsert);
-        console.log(`✨ Inserted ${createdProducts.length} products (15 per category)`);
+        console.log(`✨ Inserted ${createdProducts.length} products (40 per category)`);
 
         // 3. إدراج الإعلانات (مع ربط إعلانات الكاتيجوري)
         const bannersToInsert = banners.map(b => {

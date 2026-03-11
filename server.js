@@ -139,6 +139,14 @@ const sendEmailViaBrevo = async ({ to, bcc, subject, textContent, htmlContent })
 
 // 3. تعريف الـ Schemas
 
+// قالب الكلمات الأكثر بحثاً (Trending Searches)
+const searchKeywordSchema = new mongoose.Schema({
+    keyword: { type: String, required: true, unique: true, trim: true },
+    count: { type: Number, default: 1 } // كم مرة تم البحث عن هذه الكلمة
+}, { timestamps: true });
+
+const SearchKeyword = mongoose.model('SearchKeyword', searchKeywordSchema);
+
 // قالب المنتجات (يدعم Hover Effect عبر مصفوفة images)
 const productSchema = new mongoose.Schema({
     name: { 
@@ -346,15 +354,76 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// جلب الكل (مع دعم البحث الضبابي الذكي والتصنيف)
+// --- راوت جديد 🔥: الاقتراحات السريعة (Suggestions) ---
+app.get('/api/search-suggestions', async (req, res) => {
+    try {
+        const { q } = req.query;
+        if (!q) return res.json([]);
+
+        let pipeline = [
+            {
+                $search: {
+                    index: "product_search",
+                    text: {
+                        query: q,
+                        path: ["name.ar", "name.en"],
+                        fuzzy: { maxEdits: 1 } // التسامح مع خطأ واحد فقط للاقتراحات السريعة
+                    }
+                }
+            },
+            { $limit: 6 },
+            { $project: { _id: 0, "name.ar": 1, "name.en": 1 } } // إرجاع الاسم فقط للحفاظ على الباندويث
+        ];
+
+        const products = await Product.aggregate(pipeline);
+        res.status(200).json(products);
+    } catch (err) {
+        console.error("Suggestion Error:", err);
+        res.status(500).json([]);
+    }
+});
+
+// جلب الكلمات الأكثر بحثاً (Trending Searches)
+app.get('/api/trending-searches', async (req, res) => {
+    try {
+        const trending = await SearchKeyword.find()
+            .sort({ count: -1 }) // ترتيب تنازلي (الأكثر بحثاً أولاً)
+            .limit(6); // جلب أعلى 6 كلمات فقط
+
+        const tags = trending.map(t => t.keyword);
+
+        // إذا كانت قاعدة البيانات جديدة ولا يوجد فيها أبحاث بعد، نرسل قيم افتراضية
+        if (tags.length === 0) {
+            return res.json(['ساعات', 'عطور', 'حقائب', 'أحذية', 'فساتين', 'هدايا']);
+        }
+
+        res.status(200).json(tags);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في جلب الكلمات الشائعة" });
+    }
+});
+
+// جلب الكل (مع دعم البحث الضبابي الذكي والتصنيف والـ Pagination)
 app.get('/api/products', async (req, res) => {
     try {
-        const { category, search, minPrice, maxPrice, sort } = req.query;
+        const { category, search, minPrice, maxPrice, sort, page = 1, limit = 10 } = req.query;
         let pipeline = [];
         let matchStage = {};
 
+        // تحويل الصفحات للقيم الرقمية
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const skip = (pageNum - 1) * limitNum;
+
         // 1. مرحلة البحث الذكي (يجب أن تكون أول خطوة في الـ Pipeline إذا كان هناك بحث)
         if (search) {
+            // تسجيل الكلمة المفتاحية في الخلفية (بدون await لكي لا نؤخر الاستجابة للعميل)
+            SearchKeyword.findOneAndUpdate(
+                { keyword: search.trim().toLowerCase() }, 
+                { $inc: { count: 1 } },
+                { upsert: true, new: true }
+            ).catch(err => console.error("Search Tracking Error:", err));
+            
             pipeline.push({
                 $search: {
                     index: "product_search", // اسم الفهرس الذي أنشأناه في Atlas
@@ -362,8 +431,8 @@ app.get('/api/products', async (req, res) => {
                         query: search,
                         path: ["name.ar", "name.en", "description.ar", "description.en"],
                         fuzzy: {
-                            maxEdits: 2, // التسامح مع خطأين إملائيين (مثل: ساعع -> ساعة)
-                            prefixLength: 1 // يجب تطابق الحرف الأول لضمان سرعة البحث
+                            maxEdits: 2, 
+                            prefixLength: 1 
                         }
                     }
                 }
@@ -373,7 +442,7 @@ app.get('/api/products', async (req, res) => {
         // 2. تصفية حسب التصنيف (Category)
         if (category) {
             const categoryDoc = await Category.findOne({ slug: category });
-            if (!categoryDoc) return res.status(200).json([]); // إذا لم يوجد التصنيف، نرجع مصفوفة فارغة
+            if (!categoryDoc) return res.status(200).json({ data: [], hasMore: false }); 
             matchStage.category = categoryDoc._id;
         }
 
@@ -394,16 +463,18 @@ app.get('/api/products', async (req, res) => {
         if (sort === 'price_asc') sortStage = { price: 1 };
         if (sort === 'price_desc') sortStage = { price: -1 };
         
-        // إذا كان المستخدم لا يبحث عن شيء، نرتب حسب اختياره.
-        // أما إذا كان يبحث، فمن الأفضل ترك الترتيب لمحرك Atlas (لأنه يرتب حسب "الأكثر تطابقاً" مع الكلمة).
         if (!search) {
             pipeline.push({ $sort: sortStage });
         }
 
-        // 5. محاكاة دالة populate('category') باستخدام $lookup في الـ Aggregation
+        // 5. إضافة الـ Pagination (skip and limit)
+        pipeline.push({ $skip: skip });
+        pipeline.push({ $limit: limitNum });
+
+        // 6. محاكاة دالة populate('category') باستخدام $lookup في الـ Aggregation
         pipeline.push({
             $lookup: {
-                from: "categories", // اسم جدول التصنيفات في قاعدة البيانات
+                from: "categories", 
                 localField: "category",
                 foreignField: "_id",
                 as: "category"
@@ -415,7 +486,12 @@ app.get('/api/products', async (req, res) => {
 
         // تنفيذ الاستعلام وإرسال النتائج
         const products = await Product.aggregate(pipeline);
-        res.status(200).json(products);
+        
+        // إرجاع النتيجة مع متغير hasMore ليتعرف عليه الـ Front-end
+        res.status(200).json({
+            data: products,
+            hasMore: products.length === limitNum 
+        });
 
     } catch (err) {
         console.error("Search Error:", err);
