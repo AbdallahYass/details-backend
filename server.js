@@ -406,18 +406,13 @@ app.get('/api/trending-searches', async (req, res) => {
 // جلب الكل (مع دعم البحث الضبابي الذكي والتصنيف والـ Pagination)
 app.get('/api/products', async (req, res) => {
     try {
-        const { category, search, minPrice, maxPrice, sort, page = 1, limit = 10 } = req.query;
+        // نأخذ page و limit فقط إذا تم إرسالهم، وإلا نتركهم فارغين
+        const { category, search, minPrice, maxPrice, sort, page, limit } = req.query;
         let pipeline = [];
         let matchStage = {};
 
-        // تحويل الصفحات للقيم الرقمية
-        const pageNum = parseInt(page);
-        const limitNum = parseInt(limit);
-        const skip = (pageNum - 1) * limitNum;
-
         // 1. مرحلة البحث الذكي (يجب أن تكون أول خطوة في الـ Pipeline إذا كان هناك بحث)
         if (search) {
-            // تسجيل الكلمة المفتاحية في الخلفية (بدون await لكي لا نؤخر الاستجابة للعميل)
             SearchKeyword.findOneAndUpdate(
                 { keyword: search.trim().toLowerCase() }, 
                 { $inc: { count: 1 } },
@@ -426,14 +421,11 @@ app.get('/api/products', async (req, res) => {
             
             pipeline.push({
                 $search: {
-                    index: "product_search", // اسم الفهرس الذي أنشأناه في Atlas
+                    index: "product_search", 
                     text: {
                         query: search,
                         path: ["name.ar", "name.en", "description.ar", "description.en"],
-                        fuzzy: {
-                            maxEdits: 2, 
-                            prefixLength: 1 
-                        }
+                        fuzzy: { maxEdits: 2, prefixLength: 1 }
                     }
                 }
             });
@@ -442,7 +434,7 @@ app.get('/api/products', async (req, res) => {
         // 2. تصفية حسب التصنيف (Category)
         if (category) {
             const categoryDoc = await Category.findOne({ slug: category });
-            if (!categoryDoc) return res.status(200).json({ data: [], hasMore: false }); 
+            if (!categoryDoc) return res.status(200).json(page ? { data: [], hasMore: false } : []); 
             matchStage.category = categoryDoc._id;
         }
 
@@ -459,7 +451,7 @@ app.get('/api/products', async (req, res) => {
         }
 
         // 4. الترتيب
-        let sortStage = { createdAt: -1 }; // الترتيب الافتراضي (الأحدث)
+        let sortStage = { createdAt: -1 }; 
         if (sort === 'price_asc') sortStage = { price: 1 };
         if (sort === 'price_desc') sortStage = { price: -1 };
         
@@ -467,11 +459,16 @@ app.get('/api/products', async (req, res) => {
             pipeline.push({ $sort: sortStage });
         }
 
-        // 5. إضافة الـ Pagination (skip and limit)
-        pipeline.push({ $skip: skip });
-        pipeline.push({ $limit: limitNum });
+        // 5. إضافة الـ Pagination (فقط إذا طلبت شاشة البحث ذلك)
+        if (page && limit) {
+            const pageNum = parseInt(page);
+            const limitNum = parseInt(limit);
+            const skip = (pageNum - 1) * limitNum;
+            pipeline.push({ $skip: skip });
+            pipeline.push({ $limit: limitNum });
+        }
 
-        // 6. محاكاة دالة populate('category') باستخدام $lookup في الـ Aggregation
+        // 6. دمج التصنيفات
         pipeline.push({
             $lookup: {
                 from: "categories", 
@@ -480,18 +477,20 @@ app.get('/api/products', async (req, res) => {
                 as: "category"
             }
         });
-        pipeline.push({
-            $unwind: { path: "$category", preserveNullAndEmptyArrays: true }
-        });
+        pipeline.push({ $unwind: { path: "$category", preserveNullAndEmptyArrays: true } });
 
-        // تنفيذ الاستعلام وإرسال النتائج
         const products = await Product.aggregate(pipeline);
         
-        // إرجاع النتيجة مع متغير hasMore ليتعرف عليه الـ Front-end
-        res.status(200).json({
-            data: products,
-            hasMore: products.length === limitNum 
-        });
+        // 💡 الحل السحري هنا: 
+        // إذا كان الطلب من شاشة البحث نرجع Object، وإذا من الرئيسية نرجع Array
+        if (page && limit) {
+            res.status(200).json({
+                data: products,
+                hasMore: products.length === parseInt(limit) 
+            });
+        } else {
+            res.status(200).json(products);
+        }
 
     } catch (err) {
         console.error("Search Error:", err);
