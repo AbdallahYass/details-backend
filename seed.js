@@ -78,6 +78,11 @@ const userSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     phone: String,
+    addresses: [{
+        city: { type: String, required: true },
+        street: { type: String, required: true },
+        phone: { type: String, required: true }
+    }],
     isAdmin: { type: Boolean, default: false },
     passwordResetToken: String,
     passwordResetExpires: Date,
@@ -863,6 +868,13 @@ async function seedDatabase() {
             email: "user@details.com",
             password: hashedPassword,
             phone: "0780000000",
+            addresses: [
+                {
+                    city: "Amman",
+                    street: "Mecca St, Bldg 12",
+                    phone: "0780000000"
+                }
+            ],
             isAdmin: false,
             isVerified: true // تفعيل حساب التجربة تلقائياً
         });
