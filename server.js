@@ -173,10 +173,6 @@ const productSchema = new mongoose.Schema({
         quantity: { type: Number, default: 0 }
     }],
     colors: [{
-        name: { 
-            ar: { type: String },
-            en: { type: String }
-        },
         hex: String, // كود اللون للعرض في التطبيق
         imageUrl: String // صورة خاصة بهذا اللون
     }]
@@ -230,11 +226,6 @@ const userSchema = new mongoose.Schema({
     googleId: { type: String },
     avatar: { type: String }, 
     phone: String,
-    addresses: [{
-        city: { type: String, required: true },
-        street: { type: String, required: true },
-        phone: { type: String, required: true }
-    }],
     isAdmin: { type: Boolean, default: false },
     passwordResetToken: String,
     passwordResetExpires: Date,
@@ -511,6 +502,18 @@ app.get('/api/products/:id', async (req, res) => {
         res.json(product);
     } catch (err) {
         res.status(500).json({ message: "خطأ في السيرفر" });
+    }
+});
+
+// إضافة منتج جديد (للأدمن)
+app.post('/api/products', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        // ملاحظة: يفترض أن الفرونت اند يرسل category ID صحيح
+        const newProduct = new Product(req.body);
+        const savedProduct = await newProduct.save();
+        res.status(201).json(savedProduct);
+    } catch (err) {
+        res.status(400).json({ message: "فشل إضافة المنتج", error: err.message });
     }
 });
 
@@ -988,74 +991,6 @@ app.put('/api/profile', authenticateToken, async (req, res) => {
         res.json(updatedUser);
     } catch (err) {
         res.status(500).json({ message: "خطأ في تحديث الملف الشخصي" });
-    }
-});
-
-// --- روابط العناوين (Addresses) ---
-
-// جلب عناوين المستخدم الحالي
-app.get('/api/addresses', authenticateToken, async (req, res) => {
-    try {
-        const user = await User.findById(req.user.id).select('addresses');
-        if (!user) {
-            return res.status(404).json({ message: "المستخدم غير موجود" });
-        }
-        const addresses = user.addresses.map(addr => ({
-            id: addr._id,
-            city: addr.city,
-            street: addr.street,
-            phone: addr.phone
-        }));
-        res.status(200).json(addresses);
-    } catch (err) {
-        res.status(500).json({ message: "خطأ في جلب العناوين" });
-    }
-});
-
-// إضافة عنوان جديد
-app.post('/api/addresses', authenticateToken, async (req, res) => {
-    try {
-        const { city, street, phone } = req.body;
-        if (!city || !street || !phone) {
-            return res.status(400).json({ message: "جميع الحقول مطلوبة" });
-        }
-
-        const user = await User.findById(req.user.id);
-        if (!user) {
-            return res.status(404).json({ message: "المستخدم غير موجود" });
-        }
-
-        const newAddress = { city, street, phone };
-        user.addresses.push(newAddress);
-        await user.save();
-
-        const addedAddress = user.addresses[user.addresses.length - 1];
-        res.status(201).json({
-            id: addedAddress._id,
-            city: addedAddress.city,
-            street: addedAddress.street,
-            phone: addedAddress.phone
-        });
-
-    } catch (err) {
-        res.status(500).json({ message: "خطأ في إضافة العنوان", error: err.message });
-    }
-});
-
-// حذف عنوان
-app.delete('/api/addresses/:addressId', authenticateToken, async (req, res) => {
-    try {
-        const { addressId } = req.params;
-        const result = await User.updateOne(
-            { _id: req.user.id },
-            { $pull: { addresses: { _id: addressId } } }
-        );
-        if (result.modifiedCount === 0) {
-            return res.status(404).json({ message: "العنوان غير موجود أو لم يتم حذفه" });
-        }
-        res.status(200).json({ message: "تم حذف العنوان بنجاح" });
-    } catch (err) {
-        res.status(500).json({ message: "خطأ في حذف العنوان", error: err.message });
     }
 });
 
