@@ -173,8 +173,8 @@ const productSchema = new mongoose.Schema({
         quantity: { type: Number, default: 0 }
     }],
     colors: [{
-        hex: String, // كود اللون للعرض في التطبيق
-        imageUrl: String // صورة خاصة بهذا اللون
+        hex: String,      // كود اللون للعرض في التطبيق
+        images: [String] // قائمة صور خاصة بهذا اللون
     }]
 }, { timestamps: true });
 

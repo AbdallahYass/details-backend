@@ -27,12 +27,8 @@ const productSchema = new mongoose.Schema({
         quantity: { type: Number, default: 0 }
     }],
     colors: [{
-        name: { 
-            ar: { type: String },
-            en: { type: String }
-        },
         hex: String,
-        imageUrl: String
+        images: [String]
     }]
 }, { timestamps: true });
 
@@ -817,16 +813,8 @@ async function seedDatabase() {
                         quantity: 50, // كمية إجمالية
                         sizes: sizes,
                         colors: [
-                            { 
-                                name: { ar: "اللون الأصلي", en: "Original" }, 
-                                hex: "#333333", 
-                                imageUrl: template.imageUrl 
-                            },
-                            { 
-                                name: { ar: "لون بديل", en: "Variant" }, 
-                                hex: "#888888", 
-                                imageUrl: template.images && template.images.length > 0 ? template.images[0] : template.imageUrl 
-                            }
+                            { hex: "#333333", images: [template.imageUrl] },
+                            { hex: "#888888", images: template.images && template.images.length > 0 ? template.images : [template.imageUrl] }
                         ]
                     };
                     
@@ -903,18 +891,18 @@ async function seedDatabase() {
                         title: p1.name.en,
                         quantity: 1,
                         price: p1.price,
-                        imageUrl: p1.colors[0].imageUrl, // نستخدم صورة اللون المختار
+                        imageUrl: p1.colors[0].images[0], // نستخدم أول صورة من اللون المختار
                         size: p1.sizes[0]?.size || 'Standard',
-                        color: p1.colors[0].name.en // نحفظ اسم اللون
+                        color: "Original" // اسم اللون (يمكن تعديله لاحقاً)
                     },
                     {
                         id: p2._id.toString(),
                         title: p2.name.en,
                         quantity: 2,
                         price: p2.price,
-                        imageUrl: p2.colors[1].imageUrl, // نستخدم صورة اللون البديل (Variant)
+                        imageUrl: p2.colors[1].images[0], // نستخدم أول صورة من اللون البديل
                         size: p2.sizes[0]?.size || 'Standard',
-                        color: p2.colors[1].name.en
+                        color: "Variant"
                     }
                 ],
                 subtotal: p1.price + (p2.price * 2),
