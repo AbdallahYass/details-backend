@@ -43,7 +43,11 @@ const authLimiter = rateLimit({
     max: 100, // زيادة الحد إلى 100 محاولة
     message: { message: "محاولات دخول كثيرة جداً، يرجى الانتظار لمدة ساعة" }
 });
-app.use('/api/auth', authLimiter);
+// تطبيق الحماية على المسارات الحساسة فقط وتجنب مسار validate-token
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
+app.use('/api/auth/verify-email', authLimiter);
 
 // 2. الاتصال بقاعدة البيانات (MongoDB Atlas)
 const dbURI = process.env.MONGODB_URI;
@@ -311,16 +315,22 @@ const authenticateToken = async (req, res, next) => {
     if (!token) return res.status(401).json({ message: "يرجى تسجيل الدخول أولاً" });
 
     jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
-        if (err) return res.status(403).json({ message: "الجلسة انتهت" });
+        // تم تعديل 403 إلى 401 ليقوم تطبيق فلاتر بتسجيل الخروج التلقائي فوراً
+        if (err) return res.status(401).json({ message: "الجلسة انتهت، يرجى تسجيل الدخول مجدداً" });
         
-        // فحص إضافي: هل المستخدم ما زال موجوداً في الداتا بيس؟
-        const userExists = await User.findById(decoded.id);
-        if (!userExists) {
-            return res.status(401).json({ message: "هذا الحساب لم يعد موجوداً" });
-        }
+        try {
+            // فحص إضافي: هل المستخدم ما زال موجوداً في الداتا بيس؟
+            const userExists = await User.findById(decoded.id);
+            if (!userExists) {
+                return res.status(401).json({ message: "هذا الحساب لم يعد موجوداً" });
+            }
 
-        req.user = decoded;
-        next();
+            req.user = decoded;
+            next();
+        } catch (dbErr) {
+            console.error("Auth DB Error:", dbErr);
+            return res.status(500).json({ message: "خطأ في السيرفر أثناء التحقق من المستخدم" });
+        }
     });
 };
 
@@ -1359,4 +1369,5 @@ mongoose.connect(dbURI)
     })
     .catch(err => {
         console.error('❌ Database Connection Error:', err);
+        process.exit(1); // إخبار الخادم بالتوقف فوراً بسبب فشل الاتصال الحرج
     });
