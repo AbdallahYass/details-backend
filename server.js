@@ -48,10 +48,6 @@ app.use('/api/auth', authLimiter);
 // 2. الاتصال بقاعدة البيانات (MongoDB Atlas)
 const dbURI = process.env.MONGODB_URI;
 
-mongoose.connect(dbURI)
-    .then(() => console.log('✅ Connected to Details Store Database'))
-    .catch(err => console.error('❌ Database Connection Error:', err));
-
 // دالة لإنشاء قالب HTML للإيميل بتصميم احترافي
 const getEmailTemplate = (title, content) => `
 <!DOCTYPE html>
@@ -1354,6 +1350,13 @@ app.get('/api/popular-products', async (req, res) => {
 });
 
 // 5. تشغيل السيرفر
-app.listen(PORT, () => {
-    console.log(`🚀 Details Backend is running on port: ${PORT}`);
-});
+mongoose.connect(dbURI)
+    .then(() => {
+        console.log('✅ Connected to Details Store Database');
+        app.listen(PORT, () => {
+            console.log(`🚀 Details Backend is running on port: ${PORT}`);
+        });
+    })
+    .catch(err => {
+        console.error('❌ Database Connection Error:', err);
+    });
