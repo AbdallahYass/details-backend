@@ -129,7 +129,7 @@ const notificationSchema = new mongoose.Schema({
 const Notification = mongoose.model('Notification', notificationSchema);
 
 // 2. الاتصال (MongoDB Atlas)
-const dbURI = "mongodb+srv://admin:Details2024Store@cluster0.jzqh1t1.mongodb.net/DetailsStoreDB?retryWrites=true&w=majority";
+const dbURI = "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/DetailsStoreDB?appName=DetailsCluster";
 
 // 4. الإعلانات (Banners)
 const banners = [

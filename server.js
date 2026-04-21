@@ -1366,7 +1366,9 @@ app.get('/api/popular-products', async (req, res) => {
 });
 
 // 5. تشغيل السيرفر
-mongoose.connect(dbURI)
+mongoose.connect(dbURI, {
+    family: 4 // 💡 إجبار Node.js على استخدام IPv4 لحل مشكلة الاتصال في منصة Render
+})
     .then(() => {
         console.log('✅ Connected to Details Store Database');
         app.listen(PORT, () => {
