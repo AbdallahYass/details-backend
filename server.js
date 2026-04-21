@@ -276,6 +276,7 @@ const orderSchema = new mongoose.Schema({
     subtotal: { type: Number, required: true }, // المجموع قبل الخصم
     discountAmount: { type: Number, default: 0 }, // قيمة الخصم
     couponCode: { type: String }, // الكود المستخدم (اختياري)
+    deliveryFee: { type: Number, default: 0 }, // رسوم التوصيل
     amount: { type: Number, required: true }, // المجموع النهائي (تم التعديل ليتطابق مع الفرونت اند)
     shippingAddress: {
         city: String,
@@ -1122,7 +1123,7 @@ app.post('/api/contact', async (req, res) => {
 // إنشاء طلب جديد
 app.post('/api/orders', authenticateToken, async (req, res) => {
     try {
-        const { products, subtotal, discountAmount, couponCode, amount, shippingAddress, payment_method } = req.body;
+        const { products, subtotal, discountAmount, couponCode, deliveryFee, amount, shippingAddress, payment_method } = req.body;
         
         // 1. إذا تم استخدام كوبون، نقوم بزيادة عداد استخدامه
         if (couponCode) {
@@ -1163,6 +1164,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
             subtotal,
             discountAmount,
             couponCode,
+            deliveryFee,
             amount, // المجموع النهائي
             shippingAddress,
             paymentMethod: payment_method
