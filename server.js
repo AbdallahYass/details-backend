@@ -241,6 +241,7 @@ const userSchema = new mongoose.Schema({
     googleId: { type: String },
     avatar: { type: String }, 
     phone: String,
+    fcmTokens: [String], // 🌟 الحقل الجديد لحفظ توكنات الإشعارات
     isAdmin: { type: Boolean, default: false },
     passwordResetToken: String,
     passwordResetExpires: Date,
@@ -778,7 +779,8 @@ app.post('/api/auth/verify-email', async (req, res) => {
             password: pendingUser.password,
             phone: pendingUser.phone,
             isVerified: true, // الحساب مفعل وجاهز
-            isAdmin: false
+            isAdmin: false,
+            fcmTokens: req.body.fcmToken ? [req.body.fcmToken] : [] // 🌟 إضافة التوكن فور التفعيل
         });
         await newUser.save();
 
@@ -815,6 +817,11 @@ app.post('/api/auth/login', async (req, res) => {
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ message: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
+
+        if (req.body.fcmToken && !user.fcmTokens.includes(req.body.fcmToken)) {
+            user.fcmTokens.push(req.body.fcmToken);
+            await user.save();
+        }
 
         const expiresIn = user.isAdmin ? '7d' : '30d';
         const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn });
@@ -955,6 +962,11 @@ app.post('/api/auth/google', async (req, res) => {
             });
             await user.save();
             console.log(`✅ حساب جديد تم إنشاؤه عبر جوجل: ${email}`);
+        }
+
+        if (req.body.fcmToken && !user.fcmTokens.includes(req.body.fcmToken)) {
+            user.fcmTokens.push(req.body.fcmToken);
+            await user.save();
         }
 
         // إنشاء التوكن الخاص بنا
