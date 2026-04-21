@@ -771,7 +771,8 @@ app.post('/api/auth/verify-email', async (req, res) => {
         await PendingUser.deleteOne({ email });
 
         // تسجيل الدخول مباشرة بعد التفعيل
-        const token = jwt.sign({ id: newUser._id, email: newUser.email, isAdmin: newUser.isAdmin }, process.env.JWT_SECRET, { expiresIn: '7d' });
+        const expiresIn = newUser.isAdmin ? '7d' : '30d';
+        const token = jwt.sign({ id: newUser._id, email: newUser.email, isAdmin: newUser.isAdmin }, process.env.JWT_SECRET, { expiresIn });
 
         res.status(200).json({ 
             message: "تم تفعيل الحساب بنجاح",
@@ -800,7 +801,8 @@ app.post('/api/auth/login', async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ message: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
 
-        const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn: '7d' });
+        const expiresIn = user.isAdmin ? '7d' : '30d';
+        const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn });
 
         res.json({ 
             token, 
@@ -887,7 +889,8 @@ app.post('/api/auth/reset-password/:token', async (req, res) => {
         await user.save();
 
         // 7. إنشاء توكن جديد لتسجيل دخول المستخدم تلقائياً بعد التغيير
-        const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn: '7d' });
+        const expiresIn = user.isAdmin ? '7d' : '30d';
+        const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn });
 
         res.json({
             message: "تم تغيير كلمة المرور بنجاح.",
@@ -940,10 +943,11 @@ app.post('/api/auth/google', async (req, res) => {
         }
 
         // إنشاء التوكن الخاص بنا
+        const expiresIn = user.isAdmin ? '7d' : '30d';
         const token = jwt.sign(
             { id: user._id, email: user.email, isAdmin: user.isAdmin }, 
             process.env.JWT_SECRET, 
-            { expiresIn: '7d' }
+            { expiresIn }
         );
 
         res.status(200).json({
