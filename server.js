@@ -536,6 +536,7 @@ app.post('/api/products', authenticateToken, isAdmin, async (req, res) => {
         const savedProduct = await newProduct.save();
         res.status(201).json(savedProduct);
     } catch (err) {
+        console.error("❌ Add Product Error:", err);
         res.status(400).json({ message: "فشل إضافة المنتج", error: err.message });
     }
 });
