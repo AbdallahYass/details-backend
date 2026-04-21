@@ -147,6 +147,13 @@ const searchKeywordSchema = new mongoose.Schema({
 
 const SearchKeyword = mongoose.model('SearchKeyword', searchKeywordSchema);
 
+// قالب متغيرات المنتج (Variants)
+const variantSchema = new mongoose.Schema({
+    colorHex: { type: String, default: null },
+    size: { type: String, default: null },
+    quantity: { type: Number, required: true, default: 0 }
+}, { _id: false });
+
 // قالب المنتجات (يدعم Hover Effect عبر مصفوفة images)
 const productSchema = new mongoose.Schema({
     name: { 
@@ -168,15 +175,23 @@ const productSchema = new mongoose.Schema({
     featured: { type: Boolean, default: false },
     popularity: { type: Number, default: 0 },
     quantity: { type: Number, default: 0 }, // الكمية الإجمالية
-    sizes: [{
-        size: { type: String, required: true },
-        quantity: { type: Number, default: 0 }
-    }],
+    sizes: [String], // لعرض خيارات المقاسات في واجهة المتجر
     colors: [{
         hex: String,      // كود اللون للعرض في التطبيق
         images: [String] // قائمة صور خاصة بهذا اللون
-    }]
+    }],
+    variants: [variantSchema] // المخزون الفعلي للمنتج
 }, { timestamps: true });
+
+// Middleware لحساب الكمية الإجمالية تلقائياً قبل الحفظ
+productSchema.pre('save', function(next) {
+    if (this.variants && this.variants.length > 0) {
+        this.quantity = this.variants.reduce((total, variant) => total + variant.quantity, 0);
+    }
+    // إذا كانت الكمية الإجمالية 0، نحدّث حالة "نفذت الكمية"
+    this.isSoldOut = this.quantity <= 0;
+    next();
+});
 
 const Product = mongoose.model('Product', productSchema);
 
@@ -1141,22 +1156,21 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         for (const item of products) {
             const product = await Product.findById(item.id);
             if (product) {
-                // خصم من الكمية الكلية
-                product.quantity = Math.max(0, product.quantity - item.quantity);
-                
-                // خصم من المقاس المحدد إذا وجد
-                if (item.size && product.sizes && product.sizes.length > 0) {
-                    const sizeIndex = product.sizes.findIndex(s => s.size === item.size);
-                    if (sizeIndex > -1) {
-                        product.sizes[sizeIndex].quantity = Math.max(0, product.sizes[sizeIndex].quantity - item.quantity);
+                // خصم من المخزون الفعلي (Variants)
+                if (product.variants && product.variants.length > 0) {
+                    const variantIndex = product.variants.findIndex(v => 
+                        (v.size === item.size || (!v.size && !item.size)) && 
+                        (v.colorHex === item.color || (!v.colorHex && !item.color))
+                    );
+                    if (variantIndex > -1) {
+                        product.variants[variantIndex].quantity = Math.max(0, product.variants[variantIndex].quantity - item.quantity);
                     }
+                } else {
+                    // التوافق مع المنتجات القديمة
+                    product.quantity = Math.max(0, product.quantity - item.quantity);
                 }
                 
-                // تحديث حالة "نفذت الكمية" إذا وصل الصفر
-                if (product.quantity === 0) {
-                    product.isSoldOut = true;
-                }
-                
+                // سيقوم الـ middleware (pre save) بتحديث الكمية الإجمالية وحالة isSoldOut تلقائياً
                 await product.save();
             }
         }

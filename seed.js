@@ -1,6 +1,13 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
+// قالب متغيرات المنتج (Variants)
+const variantSchema = new mongoose.Schema({
+    colorHex: { type: String, default: null },
+    size: { type: String, default: null },
+    quantity: { type: Number, required: true, default: 0 }
+}, { _id: false });
+
 // 1. الموديلات (Schemas) - مطابقة تماماً لملف server.js
 const productSchema = new mongoose.Schema({
     name: { 
@@ -22,15 +29,21 @@ const productSchema = new mongoose.Schema({
     featured: { type: Boolean, default: false },
     popularity: { type: Number, default: 0 },
     quantity: { type: Number, default: 0 }, // الكمية الإجمالية
-    sizes: [{
-        size: { type: String, required: true },
-        quantity: { type: Number, default: 0 }
-    }],
+    sizes: [String],
     colors: [{
         hex: String,
         images: [String]
-    }]
+    }],
+    variants: [variantSchema]
 }, { timestamps: true });
+
+productSchema.pre('save', function(next) {
+    if (this.variants && this.variants.length > 0) {
+        this.quantity = this.variants.reduce((total, variant) => total + variant.quantity, 0);
+    }
+    this.isSoldOut = this.quantity <= 0;
+    next();
+});
 
 const Product = mongoose.model('Product', productSchema);
 
@@ -129,7 +142,8 @@ const notificationSchema = new mongoose.Schema({
 const Notification = mongoose.model('Notification', notificationSchema);
 
 // 2. الاتصال (MongoDB Atlas)
-const dbURI = "mongodb+srv://admin:Details2024Store@detailscluster.qcnnpvw.mongodb.net/DetailsStoreDB?appName=DetailsCluster";
+const dbURI = "mongodb+srv://admin:Details2024Store@cluster0.jzqh1t1.mongodb.net/DetailsStoreDB?retryWrites=true&w=majority&appName=Cluster0";
+
 
 // 4. الإعلانات (Banners)
 const banners = [
