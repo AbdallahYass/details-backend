@@ -1139,43 +1139,57 @@ app.post('/api/contact', async (req, res) => {
     }
 });
 
-// إنشاء طلب جديد
+// إنشاء طلب جديد (معدل باحترافية لتجنب أخطاء المخزون باستخدام Transactions)
 app.post('/api/orders', authenticateToken, async (req, res) => {
+    // 1. بدء Session لضمان أن كل العمليات تتم بنجاح أو تُلغى بالكامل
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
         const { products, subtotal, discountAmount, couponCode, deliveryFee, amount, shippingAddress, payment_method } = req.body;
         
-        // 1. إذا تم استخدام كوبون، نقوم بزيادة عداد استخدامه
+        // 2. إذا تم استخدام كوبون، نقوم بزيادة عداد استخدامه
         if (couponCode) {
             await Coupon.findOneAndUpdate(
                 { code: couponCode }, 
-                { $inc: { usedCount: 1 } }
+                { $inc: { usedCount: 1 } },
+                { session } // ربط العملية بالـ Session
             );
         }
 
-        // 2. خصم الكميات من المخزون
+        // 3. خصم الكميات من المخزون بطريقة آمنة
         for (const item of products) {
-            const product = await Product.findById(item.id);
-            if (product) {
-                // خصم من المخزون الفعلي (Variants)
-                if (product.variants && product.variants.length > 0) {
-                    const variantIndex = product.variants.findIndex(v => 
-                        (v.size === item.size || (!v.size && !item.size)) && 
-                        (v.colorHex === item.color || (!v.colorHex && !item.color))
-                    );
-                    if (variantIndex > -1) {
-                        product.variants[variantIndex].quantity = Math.max(0, product.variants[variantIndex].quantity - item.quantity);
-                    }
-                } else {
-                    // التوافق مع المنتجات القديمة
-                    product.quantity = Math.max(0, product.quantity - item.quantity);
-                }
-                
-                // سيقوم الـ middleware (pre save) بتحديث الكمية الإجمالية وحالة isSoldOut تلقائياً
-                await product.save();
+            const product = await Product.findById(item.id).session(session);
+            
+            if (!product) {
+                throw new Error(`المنتج ${item.title} غير موجود في المستودع.`);
             }
+
+            // خصم من المخزون الفعلي (Variants)
+            if (product.variants && product.variants.length > 0) {
+                const variantIndex = product.variants.findIndex(v => 
+                    (v.size === item.size || (!v.size && !item.size)) && 
+                    (v.colorHex === item.color || (!v.colorHex && !item.color))
+                );
+                
+                if (variantIndex > -1) {
+                    if (product.variants[variantIndex].quantity < item.quantity) {
+                         throw new Error(`الكمية المطلوبة من ${item.title} غير متوفرة.`);
+                    }
+                    product.variants[variantIndex].quantity -= item.quantity;
+                }
+            } else {
+                // التوافق مع المنتجات القديمة
+                if (product.quantity < item.quantity) {
+                    throw new Error(`الكمية المطلوبة من ${item.title} غير متوفرة.`);
+                }
+                product.quantity -= item.quantity;
+            }
+            
+            await product.save({ session }); // سيقوم الـ pre-save بحساب الكمية الإجمالية وتحديث isSoldOut
         }
 
-        // 3. إنشاء الطلب في قاعدة البيانات
+        // 4. إنشاء الطلب في قاعدة البيانات
         const newOrder = new Order({
             userId: req.user.id,
             products,
@@ -1183,18 +1197,24 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
             discountAmount,
             couponCode,
             deliveryFee,
-            amount, // المجموع النهائي
+            amount, 
             shippingAddress,
-            paymentMethod: payment_method
+            paymentMethod: payment_method // الانتباه هنا لاسم المتغير payment_method لتطابقه مع الفرونت
         });
 
-        const savedOrder = await newOrder.save();
+        const savedOrder = await newOrder.save({ session });
         
-        // 4. إرسال الرد بنجاح العملية (أخيراً)
+        // 5. تأكيد كل التعديلات وحفظها بشكل نهائي في قاعدة البيانات
+        await session.commitTransaction();
+        session.endSession();
+
         res.status(201).json(savedOrder);
         
     } catch (err) {
-        res.status(500).json({ message: "خطأ في إنشاء الطلب", error: err.message });
+        // في حال حدوث أي خطأ (مثلاً منتج نفذت كميته)، سيتم التراجع عن كل شيء أوتوماتيكياً!
+        await session.abortTransaction();
+        session.endSession();
+        res.status(400).json({ message: err.message || "خطأ في إنشاء الطلب" });
     }
 });
 
