@@ -184,13 +184,12 @@ const productSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Middleware لحساب الكمية الإجمالية تلقائياً قبل الحفظ
-productSchema.pre('save', function(next) {
+productSchema.pre('save', function() {
     if (this.variants && this.variants.length > 0) {
         this.quantity = this.variants.reduce((total, variant) => total + variant.quantity, 0);
     }
     // إذا كانت الكمية الإجمالية 0، نحدّث حالة "نفذت الكمية"
     this.isSoldOut = this.quantity <= 0;
-    next();
 });
 
 const Product = mongoose.model('Product', productSchema);
@@ -621,7 +620,11 @@ app.post('/api/categories', authenticateToken, isAdmin, async (req, res) => {
         const savedCategory = await newCategory.save();
         res.status(201).json(savedCategory);
     } catch (err) {
-        res.status(400).json({ message: "فشل إضافة التصنيف" });
+        // 🌟 التحسين هنا: كشف خطأ الاسم المكرر وإرسال رسالة واضحة
+        if (err.code === 11000) {
+            return res.status(400).json({ message: "فشل إضافة التصنيف: الاسم أو الرابط (slug) موجود مسبقاً." });
+        }
+        res.status(400).json({ message: "فشل إضافة التصنيف", error: err.message });
     }
 });
 
