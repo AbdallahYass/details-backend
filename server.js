@@ -543,10 +543,18 @@ app.post('/api/products', authenticateToken, isAdmin, async (req, res) => {
 // تعديل منتج (مهم للوحة التحكم)
 app.put('/api/products/:id', authenticateToken, isAdmin, async (req, res) => {
     try {
-        const updatedProduct = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        // 💡 تحسين: استخدام .save() بدلاً من findByIdAndUpdate لتفعيل الـ Middleware
+        const product = await Product.findById(req.params.id);
+        if (!product) {
+            return res.status(404).json({ message: "المنتج غير موجود" });
+        }
+        // دمج البيانات الجديدة مع القديمة
+        Object.assign(product, req.body);
+        const updatedProduct = await product.save(); // هنا سيتم تفعيل الـ pre('save') hook
         res.json(updatedProduct);
     } catch (err) {
-        res.status(400).json({ message: "فشل التحديث" });
+        console.error("❌ Update Product Error:", err);
+        res.status(400).json({ message: "فشل التحديث", error: err.message });
     }
 });
 
