@@ -1046,6 +1046,44 @@ app.put('/api/profile', authenticateToken, async (req, res) => {
 
 // --- روابط الطلبات (Orders) ---
 
+// رابط فحص المخزون قبل الانتقال للدفع (Validation)
+app.post('/api/cart/validate-inventory', async (req, res) => {
+    try {
+        const { items } = req.body; // مصفوفة تحتوي على {productId, size, color, requestedQuantity, cartKey}
+        const updates = [];
+
+        for (const item of items) {
+            const product = await Product.findById(item.productId);
+            if (!product) {
+                updates.push({ cartKey: item.cartKey, currentStock: 0 });
+                continue;
+            }
+
+            let availableQty = 0;
+            if (product.variants && product.variants.length > 0) {
+                const variant = product.variants.find(v => 
+                    (v.size === item.size || (!v.size && !item.size)) && 
+                    (v.colorHex === item.color || (!v.colorHex && !item.color))
+                );
+                availableQty = variant ? variant.quantity : 0;
+            } else {
+                availableQty = product.quantity;
+            }
+
+            if (availableQty < item.requestedQuantity) {
+                updates.push({
+                    cartKey: item.cartKey,
+                    currentStock: availableQty
+                });
+            }
+        }
+
+        res.status(200).json({ updates });
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في فحص المخزون" });
+    }
+});
+
 // إضافة كوبون جديد (للمسؤولين فقط)
 app.post('/api/coupons', authenticateToken, isAdmin, async (req, res) => {
     try {
@@ -1252,6 +1290,31 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
     }
 });
 
+// السماح للمستخدم بإلغاء طلبه (إذا كان لا يزال قيد التجهيز)
+app.patch('/api/orders/:id/status', authenticateToken, async (req, res) => {
+    try {
+        const { status } = req.body;
+        if (status !== 'ملغي') {
+            return res.status(400).json({ message: "غير مسموح للمستخدم بتغيير الحالة لغير الإلغاء" });
+        }
+
+        const order = await Order.findOne({ _id: req.params.id, userId: req.user.id });
+        
+        if (!order) return res.status(404).json({ message: "الطلب غير موجود" });
+        if (order.status !== 'قيد التجهيز') {
+            return res.status(400).json({ message: "لا يمكن إلغاء الطلب بعد شحنه" });
+        }
+
+        order.status = 'ملغي';
+        await order.save();
+
+        res.json({ message: "تم إلغاء الطلب بنجاح", order });
+    } catch (err) {
+        console.error("Cancel Order Error:", err);
+        res.status(500).json({ message: "فشل في إلغاء الطلب" });
+    }
+});
+
 // --- روابط الإشعارات (Notifications) ---
 
 // جلب إشعارات المستخدم الحالي
@@ -1315,7 +1378,8 @@ app.get('/api/admin/orders', authenticateToken, isAdmin, async (req, res) => {
 });
 
 // تحديث حالة الطلب (مثلاً: تم الشحن، تم التوصيل)
-app.put('/api/admin/orders/:id/status', authenticateToken, isAdmin, async (req, res) => {
+// تم التعديل من PUT إلى PATCH ليتوافق مع تطبيق فلاتر
+app.patch('/api/admin/orders/:id/status', authenticateToken, isAdmin, async (req, res) => {
     try {
         const { status } = req.body; // الحالة الجديدة
         const order = await Order.findByIdAndUpdate(
