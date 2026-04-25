@@ -186,7 +186,9 @@ const productSchema = new mongoose.Schema({
 // Middleware لحساب الكمية الإجمالية تلقائياً قبل الحفظ
 productSchema.pre('save', function(next) {
     if (this.variants && this.variants.length > 0) {
-        this.quantity = this.variants.reduce((total, variant) => total + variant.quantity, 0);
+        this.quantity = this.variants.reduce((total, variant) => total + (Number(variant.quantity) || 0), 0);
+    } else {
+        this.quantity = Number(this.quantity) || 0;
     }
     // إذا كانت الكمية الإجمالية 0، نحدّث حالة "نفذت الكمية"
     this.isSoldOut = this.quantity <= 0;
@@ -553,10 +555,24 @@ app.put('/api/products/:id', authenticateToken, isAdmin, async (req, res) => {
         const updateData = { ...req.body };
         delete updateData._id;
         delete updateData.__v;
+        delete updateData.createdAt;
+        delete updateData.updatedAt;
 
-        // تحويل الكاتيجوري إلى ID فقط إذا كان مرسلاً ككائن (Object)
-        if (updateData.category && typeof updateData.category === 'object') {
-            updateData.category = updateData.category._id;
+        // التعامل مع الحقول التي قد تكون null وتسبب مشاكل في الأنواع الرقمية
+        if (updateData.oldPrice === null) {
+            updateData.oldPrice = undefined;
+        }
+
+        // التحقق من صحة معرف التصنيف (Category) قبل الحفظ
+        if (updateData.category) {
+            if (typeof updateData.category === 'object' && updateData.category._id) {
+                updateData.category = updateData.category._id;
+            }
+            
+            // التأكد أن الـ ID المرسل هو ObjectId صحيح لتجنب خطأ CastError
+            if (!mongoose.Types.ObjectId.isValid(updateData.category)) {
+                return res.status(400).json({ message: "معرف التصنيف (Category ID) غير صحيح" });
+            }
         }
 
         // استخدام set() بدلاً من Object.assign لضمان تتبع التغييرات بشكل صحيح في Mongoose
@@ -566,7 +582,12 @@ app.put('/api/products/:id', authenticateToken, isAdmin, async (req, res) => {
         res.json(updatedProduct);
     } catch (err) {
         console.error("❌ Update Product Error:", err);
-        res.status(400).json({ message: "فشل التحديث", error: err.message });
+        // إرسال تفاصيل الخطأ بدقة لنعرف أي حقل هو السبب (مثل الاسم أو السعر)
+        res.status(400).json({ 
+            message: "فشل التحديث: البيانات المرسلة غير صالحة", 
+            error: err.message,
+            validationErrors: err.errors 
+        });
     }
 });
 
@@ -1273,7 +1294,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
             deliveryFee,
             amount, 
             shippingAddress,
-            paymentMethod: finalPaymentMethod
+            paymentMethod: payment_method || 'cod'
         });
 
         const savedOrder = await newOrder.save({ session });
