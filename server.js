@@ -184,7 +184,7 @@ const productSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Middleware لحساب الكمية الإجمالية تلقائياً قبل الحفظ
-productSchema.pre('save', function(next) {
+productSchema.pre('save', function() {
     if (this.variants && this.variants.length > 0) {
         this.quantity = this.variants.reduce((total, variant) => total + (Number(variant.quantity) || 0), 0);
     } else {
@@ -192,7 +192,6 @@ productSchema.pre('save', function(next) {
     }
     // إذا كانت الكمية الإجمالية 0، نحدّث حالة "نفذت الكمية"
     this.isSoldOut = this.quantity <= 0;
-    next();
 });
 
 const Product = mongoose.model('Product', productSchema);
