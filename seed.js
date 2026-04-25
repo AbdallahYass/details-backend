@@ -7,7 +7,7 @@ const variantSchema = new mongoose.Schema({
     size: { type: String, default: null },
     quantity: { type: Number, required: true, default: 0 }
 }, { _id: false });
-
+//
 // 1. الموديلات (Schemas) - مطابقة تماماً لملف server.js
 const productSchema = new mongoose.Schema({
     name: { 
