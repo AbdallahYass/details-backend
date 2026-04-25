@@ -543,13 +543,18 @@ app.post('/api/products', authenticateToken, isAdmin, async (req, res) => {
 // تعديل منتج (مهم للوحة التحكم)
 app.put('/api/products/:id', authenticateToken, isAdmin, async (req, res) => {
     try {
-        // 💡 تحسين: استخدام .save() بدلاً من findByIdAndUpdate لتفعيل الـ Middleware
         const product = await Product.findById(req.params.id);
         if (!product) {
             return res.status(404).json({ message: "المنتج غير موجود" });
         }
-        // دمج البيانات الجديدة مع القديمة
-        Object.assign(product, req.body);
+
+        // تنظيف البيانات القادمة لمنع محاولة تعديل الـ ID
+        const updateData = { ...req.body };
+        delete updateData._id;
+        delete updateData.__v;
+
+        // دمج البيانات الجديدة واستخدام save لتفعيل الـ pre-save hook الخاص بالمخزون
+        Object.assign(product, updateData);
         const updatedProduct = await product.save(); // هنا سيتم تفعيل الـ pre('save') hook
         res.json(updatedProduct);
     } catch (err) {
@@ -1261,7 +1266,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
             deliveryFee,
             amount, 
             shippingAddress,
-            paymentMethod: payment_method // الانتباه هنا لاسم المتغير payment_method لتطابقه مع الفرونت
+            paymentMethod: finalPaymentMethod
         });
 
         const savedOrder = await newOrder.save({ session });
@@ -1277,6 +1282,16 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         await session.abortTransaction();
         session.endSession();
         res.status(400).json({ message: err.message || "خطأ في إنشاء الطلب" });
+    }
+});
+
+// حذف إشعار معين
+app.delete('/api/notifications/:id', authenticateToken, async (req, res) => {
+    try {
+        await Notification.findOneAndDelete({ _id: req.params.id, userId: req.user.id });
+        res.status(200).json({ message: "تم حذف الإشعار بنجاح" });
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في حذف الإشعار" });
     }
 });
 
@@ -1325,6 +1340,16 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
         res.status(200).json(notifications);
     } catch (err) {
         res.status(500).json({ message: "خطأ في جلب الإشعارات" });
+    }
+});
+
+// حذف إشعار معين
+app.delete('/api/notifications/:id', authenticateToken, async (req, res) => {
+    try {
+        await Notification.findOneAndDelete({ _id: req.params.id, userId: req.user.id });
+        res.status(200).json({ message: "تم حذف الإشعار بنجاح" });
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في حذف الإشعار" });
     }
 });
 
@@ -1378,8 +1403,8 @@ app.get('/api/admin/orders', authenticateToken, isAdmin, async (req, res) => {
 });
 
 // تحديث حالة الطلب (مثلاً: تم الشحن، تم التوصيل)
-// تم التعديل من PUT إلى PATCH ليتوافق مع تطبيق فلاتر
-app.patch('/api/admin/orders/:id/status', authenticateToken, isAdmin, async (req, res) => {
+// دعم كل من PUT و PATCH لضمان التوافق التام مع تطبيق فلاتر
+app.route('/api/admin/orders/:id/status').all(authenticateToken, isAdmin).put(async (req, res) => {
     try {
         const { status } = req.body; // الحالة الجديدة
         const order = await Order.findByIdAndUpdate(
@@ -1389,6 +1414,29 @@ app.patch('/api/admin/orders/:id/status', authenticateToken, isAdmin, async (req
         );
 
         // إنشاء إشعار للمستخدم عند تغيير حالة الطلب
+        if (order) {
+            const notification = new Notification({
+                userId: order.userId,
+                title: "تحديث حالة الطلب",
+                message: `تم تغيير حالة طلبك رقم #${order._id.toString().slice(-6)} إلى: ${status}`,
+                type: 'order'
+            });
+            await notification.save();
+        }
+
+        res.json(order);
+    } catch (err) {
+        res.status(500).json({ message: "فشل تحديث حالة الطلب" });
+    }
+}).patch(async (req, res) => {
+    try {
+        const { status } = req.body;
+        const order = await Order.findByIdAndUpdate(
+            req.params.id,
+            { status: status },
+            { new: true }
+        );
+
         if (order) {
             const notification = new Notification({
                 userId: order.userId,
@@ -1496,8 +1544,4 @@ mongoose.connect(dbURI, {
         app.listen(PORT, () => {
             console.log(`🚀 Details Backend is running on port: ${PORT}`);
         });
-    })
-    .catch(err => {
-        console.error('❌ Database Connection Error:', err);
-        process.exit(1); // إخبار الخادم بالتوقف فوراً بسبب فشل الاتصال الحرج
     });
