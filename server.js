@@ -185,11 +185,18 @@ const productSchema = new mongoose.Schema({
 
 // Middleware لحساب الكمية الإجمالية تلقائياً قبل الحفظ
 productSchema.pre('save', function() {
-    if (this.variants && this.variants.length > 0) {
-        this.quantity = this.variants.reduce((total, variant) => total + (Number(variant.quantity) || 0), 0);
-    } else {
-        this.quantity = Number(this.quantity) || 0;
+    // نحسب مجموع الكميات في الـ variants إذا وجدت
+    const variantsTotal = (this.variants && this.variants.length > 0) 
+        ? this.variants.reduce((total, v) => total + (Number(v.quantity) || 0), 0)
+        : 0;
+
+    // إذا كان هناك مجموع حقيقي في الـ variants نستخدمه، وإلا نعتمد على الكمية الإجمالية المرسلة
+    if (variantsTotal > 0) {
+        this.quantity = variantsTotal;
     }
+    
+    this.quantity = Number(this.quantity) || 0;
+
     // إذا كانت الكمية الإجمالية 0، نحدّث حالة "نفذت الكمية"
     this.isSoldOut = this.quantity <= 0;
 });
@@ -577,8 +584,12 @@ app.put('/api/products/:id', authenticateToken, isAdmin, async (req, res) => {
         // استخدام set() بدلاً من Object.assign لضمان تتبع التغييرات بشكل صحيح في Mongoose
         product.set(updateData);
 
-        const updatedProduct = await product.save(); // هنا سيتم تفعيل الـ pre('save') hook
-        res.json(updatedProduct);
+        await product.save(); // هنا سيتم تفعيل الـ pre('save') hook
+
+        // 🌟 الحل هنا: إعادة جلب المنتج مع عمل populate للكاتيجوري ليتوافق مع الفرونت اند
+        const finalProduct = await Product.findById(product._id).populate('category');
+        
+        res.json(finalProduct);
     } catch (err) {
         console.error("❌ Update Product Error:", err);
         // إرسال تفاصيل الخطأ بدقة لنعرف أي حقل هو السبب (مثل الاسم أو السعر)
