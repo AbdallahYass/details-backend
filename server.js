@@ -184,12 +184,13 @@ const productSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Middleware لحساب الكمية الإجمالية تلقائياً قبل الحفظ
-productSchema.pre('save', function() {
+productSchema.pre('save', function(next) {
     if (this.variants && this.variants.length > 0) {
         this.quantity = this.variants.reduce((total, variant) => total + variant.quantity, 0);
     }
     // إذا كانت الكمية الإجمالية 0، نحدّث حالة "نفذت الكمية"
     this.isSoldOut = this.quantity <= 0;
+    next();
 });
 
 const Product = mongoose.model('Product', productSchema);
@@ -553,8 +554,14 @@ app.put('/api/products/:id', authenticateToken, isAdmin, async (req, res) => {
         delete updateData._id;
         delete updateData.__v;
 
-        // دمج البيانات الجديدة واستخدام save لتفعيل الـ pre-save hook الخاص بالمخزون
-        Object.assign(product, updateData);
+        // تحويل الكاتيجوري إلى ID فقط إذا كان مرسلاً ككائن (Object)
+        if (updateData.category && typeof updateData.category === 'object') {
+            updateData.category = updateData.category._id;
+        }
+
+        // استخدام set() بدلاً من Object.assign لضمان تتبع التغييرات بشكل صحيح في Mongoose
+        product.set(updateData);
+
         const updatedProduct = await product.save(); // هنا سيتم تفعيل الـ pre('save') hook
         res.json(updatedProduct);
     } catch (err) {
