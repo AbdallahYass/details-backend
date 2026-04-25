@@ -184,7 +184,7 @@ const productSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Middleware لحساب الكمية الإجمالية تلقائياً قبل الحفظ
-productSchema.pre('save', function() {
+productSchema.pre('save', function(next) {
     // نحسب مجموع الكميات في الـ variants إذا وجدت
     const variantsTotal = (this.variants && this.variants.length > 0) 
         ? this.variants.reduce((total, v) => total + (Number(v.quantity) || 0), 0)
@@ -199,6 +199,7 @@ productSchema.pre('save', function() {
 
     // إذا كانت الكمية الإجمالية 0، نحدّث حالة "نفذت الكمية"
     this.isSoldOut = this.quantity <= 0;
+    next();
 });
 
 const Product = mongoose.model('Product', productSchema);
@@ -250,6 +251,7 @@ const userSchema = new mongoose.Schema({
     avatar: { type: String }, 
     phone: String,
     fcmTokens: [String], // 🌟 الحقل الجديد لحفظ توكنات الإشعارات
+    receiveNotifications: { type: Boolean, default: true }, // 🌟 حقل جديد لإعدادات الإشعارات
     isAdmin: { type: Boolean, default: false },
     passwordResetToken: String,
     passwordResetExpires: Date,
@@ -331,6 +333,24 @@ const notificationSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const Notification = mongoose.model('Notification', notificationSchema);
+
+// قالب العناوين (Addresses)
+const addressSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    name: { type: String, required: true }, // اسم المستلم
+    phone: { type: String, required: true },
+    city: { type: String, required: true },
+    street: { type: String, required: true },
+    building: String, // رقم المبنى/الفيلا
+    floor: String,    // رقم الطابق
+    apartment: String, // رقم الشقة
+    notes: String,    // ملاحظات إضافية
+    isDefault: { type: Boolean, default: false }, // هل هو العنوان الافتراضي؟
+    latitude: Number, // إحداثيات الخريطة
+    longitude: Number,
+}, { timestamps: true });
+
+const Address = mongoose.model('Address', addressSchema);
 
 // --- Middleware للحماية (Authentication & Authorization) ---
 
@@ -1050,6 +1070,72 @@ app.post('/api/auth/google', async (req, res) => {
     }
 });
 
+// --- روابط العناوين (Addresses) ---
+app.get('/api/addresses', authenticateToken, async (req, res) => {
+    try {
+        const addresses = await Address.find({ userId: req.user.id }).sort({ isDefault: -1, createdAt: -1 });
+        res.status(200).json(addresses);
+    } catch (err) {
+        console.error("❌ Fetch Addresses Error:", err);
+        res.status(500).json({ message: "فشل في جلب العناوين" });
+    }
+});
+
+app.post('/api/addresses', authenticateToken, async (req, res) => {
+    try {
+        const newAddress = new Address({ ...req.body, userId: req.user.id });
+        // إذا كان هذا هو العنوان الأول أو تم تعيينه كافتراضي، اجعله الافتراضي الوحيد
+        if (newAddress.isDefault) {
+            await Address.updateMany({ userId: req.user.id }, { isDefault: false });
+        }
+        const savedAddress = await newAddress.save();
+        res.status(201).json(savedAddress);
+    } catch (err) {
+        console.error("❌ Add Address Error:", err);
+        res.status(400).json({ message: "فشل في إضافة العنوان", error: err.message });
+    }
+});
+
+app.put('/api/addresses/:id', authenticateToken, async (req, res) => {
+    try {
+        const addressId = req.params.id;
+        const updateData = { ...req.body };
+        delete updateData._id; // منع تحديث الـ ID
+
+        // إذا تم تعيينه كافتراضي، اجعله الافتراضي الوحيد
+        if (updateData.isDefault) {
+            await Address.updateMany({ userId: req.user.id }, { isDefault: false });
+        }
+
+        const updatedAddress = await Address.findOneAndUpdate(
+            { _id: addressId, userId: req.user.id },
+            updateData,
+            { new: true, runValidators: true }
+        );
+
+        if (!updatedAddress) {
+            return res.status(404).json({ message: "العنوان غير موجود أو لا تملك صلاحية تعديله" });
+        }
+        res.status(200).json(updatedAddress);
+    } catch (err) {
+        console.error("❌ Update Address Error:", err);
+        res.status(400).json({ message: "فشل في تحديث العنوان", error: err.message });
+    }
+});
+
+app.delete('/api/addresses/:id', authenticateToken, async (req, res) => {
+    try {
+        const deletedAddress = await Address.findOneAndDelete({ _id: req.params.id, userId: req.user.id });
+        if (!deletedAddress) {
+            return res.status(404).json({ message: "العنوان غير موجود أو لا تملك صلاحية حذفه" });
+        }
+        res.status(200).json({ message: "تم حذف العنوان بنجاح" });
+    } catch (err) {
+        console.error("❌ Delete Address Error:", err);
+        res.status(500).json({ message: "فشل في حذف العنوان" });
+    }
+});
+
 // التحقق من صحة التوكن (للدخول التلقائي)
 app.get('/api/auth/validate-token', authenticateToken, async (req, res) => {
     try {
@@ -1058,7 +1144,16 @@ app.get('/api/auth/validate-token', authenticateToken, async (req, res) => {
         
         res.json({ 
             valid: true, 
-            user: { id: user._id, name: user.name, email: user.email, isAdmin: user.isAdmin } 
+            user: { 
+                id: user._id, 
+                name: user.name, 
+                email: user.email, 
+                isAdmin: user.isAdmin,
+                avatar: user.avatar,
+                phone: user.phone,
+                receiveNotifications: user.receiveNotifications,
+                createdAt: user.createdAt
+            } 
         });
     } catch (err) {
         res.status(500).json({ message: "خطأ في التحقق" });
@@ -1068,8 +1163,16 @@ app.get('/api/auth/validate-token', authenticateToken, async (req, res) => {
 // تحديث الملف الشخصي للمستخدم
 app.put('/api/profile', authenticateToken, async (req, res) => {
     try {
-        const { name, phone, password } = req.body;
-        const updateData = { name, phone };
+        const { name, phone, email, avatar, password, receiveNotifications } = req.body;
+        const updateData = { name, phone, avatar, receiveNotifications };
+
+        if (email && email !== req.user.email) { // إذا كان الإيميل مختلفاً، تحقق منه
+            const existingUser = await User.findOne({ email });
+            if (existingUser && existingUser._id.toString() !== req.user.id) {
+                return res.status(400).json({ message: "البريد الإلكتروني مسجل مسبقاً لمستخدم آخر" });
+            }
+            updateData.email = email;
+        }
 
         if (password) {
             updateData.password = await bcrypt.hash(password, 10);
@@ -1084,6 +1187,48 @@ app.put('/api/profile', authenticateToken, async (req, res) => {
         res.json(updatedUser);
     } catch (err) {
         res.status(500).json({ message: "خطأ في تحديث الملف الشخصي" });
+    }
+});
+
+// حذف الحساب
+app.delete('/api/profile', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // 1. حذف المستخدم نفسه
+        await User.findByIdAndDelete(userId);
+        // 2. حذف جميع الطلبات المرتبطة بالمستخدم
+        await Order.deleteMany({ userId: userId });
+        // 3. حذف جميع الإشعارات المرتبطة بالمستخدم
+        await Notification.deleteMany({ userId: userId });
+        // 4. حذف قائمة المفضلة للمستخدم
+        await Wishlist.deleteOne({ userId: userId });
+        // 5. حذف العناوين المرتبطة
+        await Address.deleteMany({ userId: userId });
+
+        res.status(200).json({ message: "تم حذف الحساب وجميع البيانات المرتبطة بنجاح" });
+    } catch (err) {
+        console.error("❌ Delete Account Error:", err);
+        res.status(500).json({ message: "فشل في حذف الحساب" });
+    }
+});
+
+// إحصائيات المستخدم (طلبات، مفضلة)
+app.get('/api/profile/stats', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const ordersCount = await Order.countDocuments({ userId: userId });
+        
+        const wishlist = await Wishlist.findOne({ userId });
+        const wishlistCount = wishlist ? wishlist.products.length : 0;
+
+        res.status(200).json({
+            ordersCount: ordersCount,
+            wishlistCount: wishlistCount
+        });
+    } catch (err) {
+        console.error("❌ User Stats Error:", err);
+        res.status(500).json({ message: "فشل في جلب إحصائيات المستخدم" });
     }
 });
 
@@ -1451,8 +1596,10 @@ app.route('/api/admin/orders/:id/status').all(authenticateToken, isAdmin).put(as
             { new: true }
         );
 
-        // إنشاء إشعار للمستخدم عند تغيير حالة الطلب
-        if (order) {
+        // إنشاء إشعار للمستخدم عند تغيير حالة الطلب (فقط إذا كان مفعلاً للخيار)
+        const user = await User.findById(order?.userId);
+        
+        if (order && user && user.receiveNotifications !== false) {
             const notification = new Notification({
                 userId: order.userId,
                 title: "تحديث حالة الطلب",
@@ -1475,7 +1622,9 @@ app.route('/api/admin/orders/:id/status').all(authenticateToken, isAdmin).put(as
             { new: true }
         );
 
-        if (order) {
+        const user = await User.findById(order?.userId);
+
+        if (order && user && user.receiveNotifications !== false) {
             const notification = new Notification({
                 userId: order.userId,
                 title: "تحديث حالة الطلب",
