@@ -185,17 +185,13 @@ const productSchema = new mongoose.Schema({
 
 // Middleware لحساب الكمية الإجمالية تلقائياً قبل الحفظ
 productSchema.pre('save', function(next) {
-    // نحسب مجموع الكميات في الـ variants إذا وجدت
-    const variantsTotal = (this.variants && this.variants.length > 0) 
-        ? this.variants.reduce((total, v) => total + (Number(v.quantity) || 0), 0)
-        : 0;
-
-    // إذا كان هناك مجموع حقيقي في الـ variants نستخدمه، وإلا نعتمد على الكمية الإجمالية المرسلة
-    if (variantsTotal > 0) {
-        this.quantity = variantsTotal;
+    if (this.variants && this.variants.length > 0) {
+        // إذا وجد متغيرات، فالكمية الإجمالية هي مجموعها حصراً
+        this.quantity = this.variants.reduce((total, v) => total + (Number(v.quantity) || 0), 0);
+    } else {
+        // إذا لم توجد متغيرات، نعتمد على الكمية المباشرة
+        this.quantity = Number(this.quantity) || 0;
     }
-    
-    this.quantity = Number(this.quantity) || 0;
 
     // إذا كانت الكمية الإجمالية 0، نحدّث حالة "نفذت الكمية"
     this.isSoldOut = this.quantity <= 0;
@@ -1084,15 +1080,37 @@ app.get('/api/addresses', authenticateToken, async (req, res) => {
 app.post('/api/addresses', authenticateToken, async (req, res) => {
     try {
         const newAddress = new Address({ ...req.body, userId: req.user.id });
+        const { name, phone, city, street } = req.body;
+
+        // 1. تحقق يدوي سريع للحقول الأساسية لإعطاء رسالة واضحة
+        if (!name || !phone || !city || !street) {
+            return res.status(400).json({ 
+                message: "يرجى ملء جميع الحقول المطلوبة: الاسم، الهاتف، المدينة، والشارع" 
+            });
+        }
+
+        // 2. تجهيز البيانات والتأكد من ربطها بالمستخدم الصحيح
+        const addressData = { ...req.body };
+        delete addressData._id; // منع إرسال ID يدوي من الفرونت اند
+        addressData.userId = req.user.id;
+
+        const newAddress = new Address(addressData);
+
         // إذا كان هذا هو العنوان الأول أو تم تعيينه كافتراضي، اجعله الافتراضي الوحيد
         if (newAddress.isDefault) {
             await Address.updateMany({ userId: req.user.id }, { isDefault: false });
         }
+
         const savedAddress = await newAddress.save();
         res.status(201).json(savedAddress);
     } catch (err) {
         console.error("❌ Add Address Error:", err);
         res.status(400).json({ message: "فشل في إضافة العنوان", error: err.message });
+        res.status(400).json({ 
+            message: "فشل في إضافة العنوان: تأكد من صحة البيانات المرسلة", 
+            error: err.message,
+            details: err.errors // هذا سيظهر لك بالضبط أي حقل فيه المشكلة
+        });
     }
 });
 
@@ -1596,10 +1614,11 @@ app.route('/api/admin/orders/:id/status').all(authenticateToken, isAdmin).put(as
             { new: true }
         );
 
-        // إنشاء إشعار للمستخدم عند تغيير حالة الطلب (فقط إذا كان مفعلاً للخيار)
-        const user = await User.findById(order?.userId);
-        
-        if (order && user && user.receiveNotifications !== false) {
+        if (!order) return res.status(404).json({ message: "الطلب غير موجود" });
+
+        // جلب بيانات المستخدم للتأكد من رغبته في استلام الإشعارات
+        const user = await User.findById(order.userId);
+        if (user && user.receiveNotifications !== false) {
             const notification = new Notification({
                 userId: order.userId,
                 title: "تحديث حالة الطلب",
@@ -1622,9 +1641,10 @@ app.route('/api/admin/orders/:id/status').all(authenticateToken, isAdmin).put(as
             { new: true }
         );
 
-        const user = await User.findById(order?.userId);
+        if (!order) return res.status(404).json({ message: "الطلب غير موجود" });
 
-        if (order && user && user.receiveNotifications !== false) {
+        const user = await User.findById(order.userId);
+        if (user && user.receiveNotifications !== false) {
             const notification = new Notification({
                 userId: order.userId,
                 title: "تحديث حالة الطلب",
