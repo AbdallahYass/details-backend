@@ -37,7 +37,7 @@ const productSchema = new mongoose.Schema({
     variants: [variantSchema]
 }, { timestamps: true });
 
-productSchema.pre('save', function(next) {
+productSchema.pre('save', function() {
     const variantsTotal = (this.variants && this.variants.length > 0) 
         ? this.variants.reduce((total, v) => total + (Number(v.quantity) || 0), 0)
         : 0;
@@ -45,7 +45,6 @@ productSchema.pre('save', function(next) {
         this.quantity = variantsTotal;
     }
     this.isSoldOut = (Number(this.quantity) || 0) <= 0;
-    next();
 });
 
 const Product = mongoose.model('Product', productSchema);

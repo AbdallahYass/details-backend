@@ -184,7 +184,7 @@ const productSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Middleware لحساب الكمية الإجمالية تلقائياً قبل الحفظ
-productSchema.pre('save', function(next) {
+productSchema.pre('save', function() {
     if (this.variants && this.variants.length > 0) {
         // إذا وجد متغيرات، فالكمية الإجمالية هي مجموعها حصراً
         this.quantity = this.variants.reduce((total, v) => total + (Number(v.quantity) || 0), 0);
@@ -195,7 +195,6 @@ productSchema.pre('save', function(next) {
 
     // إذا كانت الكمية الإجمالية 0، نحدّث حالة "نفذت الكمية"
     this.isSoldOut = this.quantity <= 0;
-    next();
 });
 
 const Product = mongoose.model('Product', productSchema);
@@ -1079,7 +1078,6 @@ app.get('/api/addresses', authenticateToken, async (req, res) => {
 
 app.post('/api/addresses', authenticateToken, async (req, res) => {
     try {
-        const newAddress = new Address({ ...req.body, userId: req.user.id });
         const { name, phone, city, street } = req.body;
 
         // 1. تحقق يدوي سريع للحقول الأساسية لإعطاء رسالة واضحة
