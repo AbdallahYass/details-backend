@@ -38,14 +38,13 @@ const productSchema = new mongoose.Schema({
     variants: [variantSchema]
 }, { timestamps: true });
 
-productSchema.pre('save', function(next) {
+productSchema.pre('save', function() {
     if (this.variants && this.variants.length > 0) {
         this.quantity = this.variants.reduce((total, v) => total + (Number(v.quantity) || 0), 0);
     } else {
         this.quantity = Number(this.quantity) || 0;
     }
     this.isSoldOut = this.quantity <= 0;
-    next();
 });
 
 const Product = mongoose.model('Product', productSchema);

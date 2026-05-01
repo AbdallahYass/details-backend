@@ -225,7 +225,7 @@ const productSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Middleware لحساب الكمية الإجمالية تلقائياً قبل الحفظ
-productSchema.pre('save', function(next) {
+productSchema.pre('save', function() {
     if (this.variants && this.variants.length > 0) {
         // إذا وجد متغيرات، فالكمية الإجمالية هي مجموعها حصراً
         this.quantity = this.variants.reduce((total, v) => total + (Number(v.quantity) || 0), 0);
@@ -236,7 +236,6 @@ productSchema.pre('save', function(next) {
 
     // إذا كانت الكمية الإجمالية 0، نحدّث حالة "نفذت الكمية"
     this.isSoldOut = this.quantity <= 0;
-    next();
 });
 
 // تحويل تلقائي للبيانات لتعيد اللغة المختارة فقط عند إرسالها للفرونت اند (اختياري)
@@ -1467,7 +1466,13 @@ app.post('/api/orders', async (req, res) => {
             }
         }
 
-        const { products, subtotal, discountAmount, couponCode, deliveryFee, amount, shippingAddress, payment_method } = req.body;
+        const { products, subtotal, discountAmount, couponCode, deliveryFee, amount, shippingAddress, payment_method, name } = req.body;
+
+        // 🌟 تأكد من وجود اسم المستلم داخل كائن العنوان (مفيد جداً لطلبات الزوار)
+        if (shippingAddress && name && !shippingAddress.name) {
+            shippingAddress.name = name;
+        }
+
         // 2. إذا تم استخدام كوبون، نقوم بزيادة عداد استخدامه
         if (couponCode) {
             await Coupon.findOneAndUpdate(
@@ -1534,7 +1539,7 @@ app.post('/api/orders', async (req, res) => {
         // في حال حدوث أي خطأ (مثلاً منتج نفذت كميته)، سيتم التراجع عن كل شيء أوتوماتيكياً!
         await session.abortTransaction();
         session.endSession();
-        res.status(400).json({ message: err.message || "خطأ في إنشاء الطلب" });
+        res.status(400).json({ message: err.message || "خطأ في إنشاء الطلب", error: err.toString() });
     }
 });
 
