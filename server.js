@@ -1581,26 +1581,47 @@ app.get('/api/orders/guest', async (req, res) => {
 
 // السماح للمستخدم بإلغاء طلبه (إذا كان لا يزال قيد التجهيز)
 app.patch('/api/orders/:id/status', authenticateToken, async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
     try {
         const { status } = req.body;
         if (status !== 'ملغي') {
             return res.status(400).json({ message: "غير مسموح للمستخدم بتغيير الحالة لغير الإلغاء" });
         }
 
-        const order = await Order.findOne({ _id: req.params.id, userId: req.user.id });
+        const order = await Order.findOne({ _id: req.params.id, userId: req.user.id }).session(session);
         
-        if (!order) return res.status(404).json({ message: "الطلب غير موجود" });
-        if (order.status !== 'قيد التجهيز') {
-            return res.status(400).json({ message: "لا يمكن إلغاء الطلب بعد شحنه" });
+        if (!order) throw new Error("الطلب غير موجود");
+        if (order.status === 'ملغي') throw new Error("الطلب ملغي بالفعل");
+        if (order.status !== 'قيد التجهيز') throw new Error("لا يمكن إلغاء الطلب بعد شحنه أو توصيله");
+
+        // 🌟 إرجاع الكميات للمخزون
+        for (const item of order.products) {
+            const product = await Product.findById(item.id).session(session);
+            if (product) {
+                if (product.variants && product.variants.length > 0) {
+                    const vIdx = product.variants.findIndex(v => 
+                        (v.size === item.size || (!v.size && !item.size)) && 
+                        (v.colorHex === item.color || (!v.colorHex && !item.color))
+                    );
+                    if (vIdx > -1) product.variants[vIdx].quantity += item.quantity;
+                } else {
+                    product.quantity += item.quantity;
+                }
+                await product.save({ session });
+            }
         }
 
         order.status = 'ملغي';
-        await order.save();
+        await order.save({ session });
 
-        res.json({ message: "تم إلغاء الطلب بنجاح", order });
+        await session.commitTransaction();
+        res.json({ message: "تم إلغاء الطلب بنجاح وإعادة المنتجات للمخزون", order });
     } catch (err) {
-        console.error("Cancel Order Error:", err);
-        res.status(500).json({ message: "فشل في إلغاء الطلب" });
+        await session.abortTransaction();
+        res.status(400).json({ message: err.message });
+    } finally {
+        session.endSession();
     }
 });
 
@@ -1680,25 +1701,45 @@ app.get('/api/admin/orders', authenticateToken, isAdmin, async (req, res) => {
 // دعم كل من PUT و PATCH لضمان التوافق التام مع تطبيق فلاتر
 app.route('/api/admin/orders/:id/status').all(authenticateToken, isAdmin).put(async (req, res) => {
     try {
-        const { status } = req.body; // الحالة الجديدة
-        const order = await Order.findByIdAndUpdate(
-            req.params.id,
-            { status: status },
-            { new: true }
-        );
-
+        const { status } = req.body;
+        const order = await Order.findById(req.params.id);
         if (!order) return res.status(404).json({ message: "الطلب غير موجود" });
+
+        // 🌟 إذا تم تغيير الحالة إلى "ملغي" ولم يكن ملغياً من قبل، نرجع المخزون
+        if (status === 'ملغي' && order.status !== 'ملغي') {
+            for (const item of order.products) {
+                const product = await Product.findById(item.id);
+                if (product) {
+                    if (product.variants && product.variants.length > 0) {
+                        const vIdx = product.variants.findIndex(v => 
+                            (v.size === item.size || (!v.size && !item.size)) && 
+                            (v.colorHex === item.color || (!v.colorHex && !item.color))
+                        );
+                        if (vIdx > -1) product.variants[vIdx].quantity += item.quantity;
+                    } else {
+                        product.quantity += item.quantity;
+                    }
+                    await product.save();
+                }
+            }
+        }
+
+        order.status = status;
+        await order.save();
 
         // جلب بيانات المستخدم للتأكد من رغبته في استلام الإشعارات
         const user = await User.findById(order.userId);
         if (user && user.receiveNotifications !== false) {
-            const notification = new Notification({
-                userId: order.userId,
-                title: "تحديث حالة الطلب",
-                message: `تم تغيير حالة طلبك رقم #${order._id.toString().slice(-6)} إلى: ${status}`,
-                type: 'order'
-            });
-            await notification.save();
+            // إنشاء إشعار فقط إذا كان هناك مستخدم مربوط بالطلب
+            if (order.userId) {
+                const notification = new Notification({
+                    userId: order.userId,
+                    title: "تحديث حالة الطلب",
+                    message: `تم تغيير حالة طلبك رقم #${order._id.toString().slice(-6)} إلى: ${status}`,
+                    type: 'order'
+                });
+                await notification.save();
+            }
         }
 
         res.json(order);
@@ -1706,25 +1747,44 @@ app.route('/api/admin/orders/:id/status').all(authenticateToken, isAdmin).put(as
         res.status(500).json({ message: "فشل تحديث حالة الطلب" });
     }
 }).patch(async (req, res) => {
+    // نستخدم نفس المنطق في PATCH أيضاً
     try {
         const { status } = req.body;
-        const order = await Order.findByIdAndUpdate(
-            req.params.id,
-            { status: status },
-            { new: true }
-        );
-
+        const order = await Order.findById(req.params.id);
         if (!order) return res.status(404).json({ message: "الطلب غير موجود" });
+
+        if (status === 'ملغي' && order.status !== 'ملغي') {
+            for (const item of order.products) {
+                const product = await Product.findById(item.id);
+                if (product) {
+                    if (product.variants && product.variants.length > 0) {
+                        const vIdx = product.variants.findIndex(v => 
+                            (v.size === item.size || (!v.size && !item.size)) && 
+                            (v.colorHex === item.color || (!v.colorHex && !item.color))
+                        );
+                        if (vIdx > -1) product.variants[vIdx].quantity += item.quantity;
+                    } else {
+                        product.quantity += item.quantity;
+                    }
+                    await product.save();
+                }
+            }
+        }
+
+        order.status = status;
+        await order.save();
 
         const user = await User.findById(order.userId);
         if (user && user.receiveNotifications !== false) {
-            const notification = new Notification({
-                userId: order.userId,
-                title: "تحديث حالة الطلب",
-                message: `تم تغيير حالة طلبك رقم #${order._id.toString().slice(-6)} إلى: ${status}`,
-                type: 'order'
-            });
-            await notification.save();
+            if (order.userId) {
+                const notification = new Notification({
+                    userId: order.userId,
+                    title: "تحديث حالة الطلب",
+                    message: `تم تغيير حالة طلبك رقم #${order._id.toString().slice(-6)} إلى: ${status}`,
+                    type: 'order'
+                });
+                await notification.save();
+            }
         }
 
         res.json(order);

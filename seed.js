@@ -128,17 +128,31 @@ const Coupon = mongoose.model('Coupon', couponSchema);
 
 // قالب الطلبات (Orders)
 const orderSchema = new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    products: [Object], // تبسيط للهيكل في الـ Seed
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // أصبح اختيارياً لدعم الزوار
+    products: [{
+        id: String,
+        title: String,
+        quantity: Number,
+        price: Number,
+        imageUrl: String,
+        size: String,
+        color: String,
+        withBox: { type: Boolean, default: false }
+    }],
     subtotal: Number,
     discountAmount: Number,
     couponCode: String,
+    deliveryFee: { type: Number, default: 0 },
     amount: Number,
-    shippingAddress: Object,
-    paymentMethod: String,
+    shippingAddress: {
+        name: String,
+        city: String,
+        street: String,
+        phone: String
+    },
+    paymentMethod: { type: String, default: 'cod' },
     status: { type: String, default: 'قيد التجهيز' }
 }, { timestamps: true });
-
 const Order = mongoose.model('Order', orderSchema);
 
 // قالب الإشعارات (Notifications)
