@@ -79,9 +79,8 @@ const categorySchema = new mongoose.Schema({
 categorySchema.set('toJSON', {
     transform: function(doc, ret, options) {
         const lang = options.lang || 'ar';
-        if (ret.name && typeof ret.name === 'object') { // التأكد من أن الحقل كائن
-            ret.name = ret.name[lang] || ret.name['ar'] || ret.name['en']; // إضافة fallback للغة الإنجليزية
-        }
+        // مزامنة نفس المنطق لضمان استقرار قاعدة البيانات عند إعادة التهيئة
+        ret.displayName = (ret.name && typeof ret.name === 'object') ? (ret.name[lang] || ret.name['ar'] || ret.name['en']) : ret.name;
         return ret;
     }
 });

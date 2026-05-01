@@ -243,14 +243,13 @@ productSchema.pre('save', function(next) {
 productSchema.set('toJSON', {
     transform: function(doc, ret, options) {
         const lang = options.lang || 'ar';
-        // 🌟 التأكد من أن الحقل كائن (Object) قبل محاولة الوصول لمفاتيح اللغة لمنع انهيار التطبيق
-        if (ret.name && typeof ret.name === 'object') {
-            ret.name = ret.name[lang] || ret.name['ar'] || ret.name['en']; // إضافة fallback للغة الإنجليزية
-        }
-        if (ret.description && typeof ret.description === 'object') {
-            ret.description = ret.description[lang] || ret.description['ar'] || ret.description['en']; // إضافة fallback للغة الإنجليزية
-        }
-        // يمكنك إضافة باقي الحقول المترجمة هنا
+
+        // 🌟 الحل لتجنب NoSuchMethodError في فلاتر:
+        // لا نقم بتغيير الحقول الأصلية (name, description) لأن التطبيق الحالي يتوقعها كـ Map
+        // بدلاً من ذلك، نضيف حقولاً جديدة تحتوي على النص المترجم جاهزاً للمستقبل
+        ret.displayName = (ret.name && typeof ret.name === 'object') ? (ret.name[lang] || ret.name['ar'] || ret.name['en']) : ret.name;
+        ret.displayDescription = (ret.description && typeof ret.description === 'object') ? (ret.description[lang] || ret.description['ar'] || ret.description['en']) : ret.description;
+
         return ret;
     }
 });
@@ -288,9 +287,8 @@ const categorySchema = new mongoose.Schema({
 categorySchema.set('toJSON', {
     transform: function(doc, ret, options) {
         const lang = options.lang || 'ar';
-        if (ret.name && typeof ret.name === 'object') { // التأكد من أن الحقل كائن
-            ret.name = ret.name[lang] || ret.name['ar'] || ret.name['en']; // إضافة fallback للغة الإنجليزية
-        }
+        // نترك الحقل الأصلي كما هو ونضيفdisplayName للمساعدة في الترجمة دون كسر التطبيق
+        ret.displayName = (ret.name && typeof ret.name === 'object') ? (ret.name[lang] || ret.name['ar'] || ret.name['en']) : ret.name;
         return ret;
     }
 });
