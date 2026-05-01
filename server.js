@@ -225,7 +225,7 @@ const productSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Middleware لحساب الكمية الإجمالية تلقائياً قبل الحفظ
-productSchema.pre('save', function() {
+productSchema.pre('save', function(next) {
     if (this.variants && this.variants.length > 0) {
         // إذا وجد متغيرات، فالكمية الإجمالية هي مجموعها حصراً
         this.quantity = this.variants.reduce((total, v) => total + (Number(v.quantity) || 0), 0);
@@ -236,14 +236,20 @@ productSchema.pre('save', function() {
 
     // إذا كانت الكمية الإجمالية 0، نحدّث حالة "نفذت الكمية"
     this.isSoldOut = this.quantity <= 0;
+    next();
 });
 
 // تحويل تلقائي للبيانات لتعيد اللغة المختارة فقط عند إرسالها للفرونت اند (اختياري)
 productSchema.set('toJSON', {
     transform: function(doc, ret, options) {
         const lang = options.lang || 'ar';
-        if (ret.name) ret.name = ret.name[lang] || ret.name['ar'];
-        if (ret.description) ret.description = ret.description[lang] || ret.description['ar'];
+        // 🌟 التأكد من أن الحقل كائن (Object) قبل محاولة الوصول لمفاتيح اللغة لمنع انهيار التطبيق
+        if (ret.name && typeof ret.name === 'object') {
+            ret.name = ret.name[lang] || ret.name['ar'] || ret.name['en']; // إضافة fallback للغة الإنجليزية
+        }
+        if (ret.description && typeof ret.description === 'object') {
+            ret.description = ret.description[lang] || ret.description['ar'] || ret.description['en']; // إضافة fallback للغة الإنجليزية
+        }
         // يمكنك إضافة باقي الحقول المترجمة هنا
         return ret;
     }
@@ -282,8 +288,8 @@ const categorySchema = new mongoose.Schema({
 categorySchema.set('toJSON', {
     transform: function(doc, ret, options) {
         const lang = options.lang || 'ar';
-        if (ret.name && typeof ret.name === 'object') {
-            ret.name = ret.name[lang] || ret.name['ar'];
+        if (ret.name && typeof ret.name === 'object') { // التأكد من أن الحقل كائن
+            ret.name = ret.name[lang] || ret.name['ar'] || ret.name['en']; // إضافة fallback للغة الإنجليزية
         }
         return ret;
     }
