@@ -1580,7 +1580,7 @@ app.get('/api/orders/guest', async (req, res) => {
 });
 
 // السماح للمستخدم بإلغاء طلبه (إذا كان لا يزال قيد التجهيز)
-app.patch('/api/orders/:id/status', authenticateToken, async (req, res) => {
+app.patch('/api/orders/:id/status', async (req, res) => {
     const session = await mongoose.startSession();
     session.startTransaction();
     try {
@@ -1589,9 +1589,26 @@ app.patch('/api/orders/:id/status', authenticateToken, async (req, res) => {
             return res.status(400).json({ message: "غير مسموح للمستخدم بتغيير الحالة لغير الإلغاء" });
         }
 
-        const order = await Order.findOne({ _id: req.params.id, userId: req.user.id }).session(session);
+        // محاولة التعرف على المستخدم إذا كان التوكن موجوداً (اختياري)
+        let requesterId = null;
+        const authHeader = req.headers['authorization'];
+        const token = authHeader && authHeader.split(' ')[1];
+        if (token) {
+            try {
+                const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                requesterId = decoded.id;
+            } catch (err) {}
+        }
+
+        const order = await Order.findById(req.params.id).session(session);
         
         if (!order) throw new Error("الطلب غير موجود");
+
+        // التحقق من الملكية: إذا كان الطلب مربوطاً بحساب، نمنع الإلغاء إلا لصاحب الحساب
+        if (order.userId && (!requesterId || order.userId.toString() !== requesterId)) {
+            return res.status(403).json({ message: "غير مسموح لك بإلغاء هذا الطلب" });
+        }
+
         if (order.status === 'ملغي') throw new Error("الطلب ملغي بالفعل");
         if (order.status !== 'قيد التجهيز') throw new Error("لا يمكن إلغاء الطلب بعد شحنه أو توصيله");
 
@@ -1798,11 +1815,12 @@ app.route('/api/admin/orders/:id/status').all(authenticateToken, isAdmin).put(as
 app.get('/api/admin/stats', authenticateToken, isAdmin, async (req, res) => {
     try {
         const productsCount = await Product.countDocuments();
-        const ordersCount = await Order.countDocuments();
+        const ordersCount = await Order.countDocuments({ status: { $ne: 'ملغي' } });
         const usersCount = await User.countDocuments();
         
-        // حساب إجمالي المبيعات باستخدام Aggregation
+        // حساب إجمالي المبيعات باستخدام Aggregation مع استثناء الطلبات الملغية
         const salesData = await Order.aggregate([
+            { $match: { status: { $ne: 'ملغي' } } },
             { $group: { _id: null, totalSales: { $sum: "$amount" } } }
         ]);
         const totalSales = salesData.length > 0 ? salesData[0].totalSales : 0;
