@@ -75,6 +75,16 @@ const categorySchema = new mongoose.Schema({
     imageUrl: { type: String, required: true }
 }, { timestamps: true });
 
+categorySchema.set('toJSON', {
+    transform: function(doc, ret, options) {
+        const lang = options.lang || 'ar';
+        if (ret.name && typeof ret.name === 'object') {
+            ret.name = ret.name[lang] || ret.name['ar'];
+        }
+        return ret;
+    }
+});
+
 const Category = mongoose.model('Category', categorySchema);
 
 const wishlistSchema = new mongoose.Schema({
@@ -144,8 +154,7 @@ const notificationSchema = new mongoose.Schema({
 const Notification = mongoose.model('Notification', notificationSchema);
 
 // 2. الاتصال (MongoDB Atlas)
-const dbURI = "mongodb+srv://admin:Details2024Store@cluster0.jzqh1t1.mongodb.net/DetailsStoreDB?retryWrites=true&w=majority&appName=Cluster0";
-
+const dbURI = process.env.MONGODB_URI;
 
 // 4. الإعلانات (Banners)
 const banners = [

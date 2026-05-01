@@ -11,12 +11,31 @@ const xss = require('xss-clean');
 const hpp = require('hpp');
 const crypto = require('crypto');
 const morgan = require('morgan');
+const { body, validationResult } = require('express-validator');
 const { OAuth2Client } = require('google-auth-library');
 
 const app = express();
 app.set('trust proxy', 1); // ثق في البروكسي الأول (ضروري للاستضافة على Render لإصلاح خطأ Rate Limit)
 const PORT = process.env.PORT || 3000;
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+// قاموس الترجمة للرسائل الثابتة
+const translations = {
+    ar: {
+        auth_required: "يرجى تسجيل الدخول أولاً",
+        session_expired: "الجلسة انتهت، يرجى تسجيل الدخول مجدداً",
+        user_not_found: "هذا الحساب لم يعد موجوداً",
+        admin_only: "هذا الإجراء مخصص للمسؤولين فقط",
+        login_error: "البريد الإلكتروني أو كلمة المرور غير صحيحة"
+    },
+    en: {
+        auth_required: "Please login first",
+        session_expired: "Session expired, please login again",
+        user_not_found: "User no longer exists",
+        admin_only: "This action is for admins only",
+        login_error: "Invalid email or password"
+    }
+};
 
 // 1. Middleware
 app.use(helmet()); // إضافة ترويسات أمان HTTP لحماية التطبيق
@@ -28,6 +47,31 @@ app.use(mongoSanitize()); // تنظيف البيانات المدخلة لمنع
 app.use(xss()); // تنظيف البيانات من أكواد HTML/JS الخبيثة (XSS)
 app.use(hpp()); // منع تلوث المعاملات (HTTP Parameter Pollution)
 
+// Middleware لتحديد اللغة المطلوبة من الـ Headers
+app.use((req, res, next) => {
+    // نأخذ اللغة من الهيدر 'accept-language' أو نستخدم 'ar' كافتراضية
+    const lang = req.headers['accept-language']?.split(',')[0].split('-')[0] || 'ar';
+    req.lang = (lang === 'en' || lang === 'ar') ? lang : 'ar';
+    req.t = (key) => translations[req.lang][key] || key;
+    next();
+});
+
+// 1. دالة لتغليف العمليات غير المتزامنة (بديلة لـ try/catch في كل راوت)
+const asyncHandler = fn => (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+};
+
+// 2. دالة لفحص وتجميع أخطاء express-validator وإرسالها للمستخدم
+const validateRequest = (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ 
+            message: errors.array()[0].msg, 
+            details: errors.array() 
+        });
+    }
+    next();
+};
 
 // حماية عامة: تحديد عدد الطلبات لكل IP (Rate Limiting)
 const globalLimiter = rateLimit({
@@ -125,14 +169,11 @@ const sendEmailViaBrevo = async ({ to, bcc, subject, textContent, htmlContent })
 
         if (!response.ok) {
             const errorData = await response.json();
-            console.error("❌ خطأ من سيرفر Brevo:", errorData);
             return false;
         }
         
-        console.log("✅ تم إرسال الإيميل بنجاح عبر Brevo");
         return true;
     } catch (error) {
-        console.error("❌ فشل الاتصال بـ Brevo:", error);
         return false;
     }
 };
@@ -197,6 +238,17 @@ productSchema.pre('save', function() {
     this.isSoldOut = this.quantity <= 0;
 });
 
+// تحويل تلقائي للبيانات لتعيد اللغة المختارة فقط عند إرسالها للفرونت اند (اختياري)
+productSchema.set('toJSON', {
+    transform: function(doc, ret, options) {
+        const lang = options.lang || 'ar';
+        if (ret.name) ret.name = ret.name[lang] || ret.name['ar'];
+        if (ret.description) ret.description = ret.description[lang] || ret.description['ar'];
+        // يمكنك إضافة باقي الحقول المترجمة هنا
+        return ret;
+    }
+});
+
 const Product = mongoose.model('Product', productSchema);
 
 // قالب الإعلانات (Banners)
@@ -226,6 +278,16 @@ const categorySchema = new mongoose.Schema({
     slug: { type: String, required: true, unique: true }, // للربط مع المنتجات (مثلاً: bags)
     imageUrl: { type: String, required: true }
 }, { timestamps: true });
+
+categorySchema.set('toJSON', {
+    transform: function(doc, ret, options) {
+        const lang = options.lang || 'ar';
+        if (ret.name && typeof ret.name === 'object') {
+            ret.name = ret.name[lang] || ret.name['ar'];
+        }
+        return ret;
+    }
+});
 
 const Category = mongoose.model('Category', categorySchema);
 
@@ -284,7 +346,7 @@ const Coupon = mongoose.model('Coupon', couponSchema);
 
 // قالب الطلبات (Orders)
 const orderSchema = new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // إزالة required لدعم الزوار
     products: [{
         id: String,
         title: String,
@@ -292,7 +354,8 @@ const orderSchema = new mongoose.Schema({
         price: Number,
         imageUrl: String,
         size: String,
-        color: String
+        color: String,
+        withBox: { type: Boolean, default: false } // لدعم خيار تغليف الهدايا
     }],
     subtotal: { type: Number, required: true }, // المجموع قبل الخصم
     discountAmount: { type: Number, default: 0 }, // قيمة الخصم
@@ -300,6 +363,7 @@ const orderSchema = new mongoose.Schema({
     deliveryFee: { type: Number, default: 0 }, // رسوم التوصيل
     amount: { type: Number, required: true }, // المجموع النهائي (تم التعديل ليتطابق مع الفرونت اند)
     shippingAddress: {
+        name: String, // إضافة حقل الاسم لاستقبال اسم الزائر
         city: String,
         street: String,
         phone: String
@@ -352,17 +416,17 @@ const Address = mongoose.model('Address', addressSchema);
 const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
-    if (!token) return res.status(401).json({ message: "يرجى تسجيل الدخول أولاً" });
+    if (!token) return res.status(401).json({ message: req.t('auth_required') });
 
     jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
         // تم تعديل 403 إلى 401 ليقوم تطبيق فلاتر بتسجيل الخروج التلقائي فوراً
-        if (err) return res.status(401).json({ message: "الجلسة انتهت، يرجى تسجيل الدخول مجدداً" });
+        if (err) return res.status(401).json({ message: req.t('session_expired') });
         
         try {
             // فحص إضافي: هل المستخدم ما زال موجوداً في الداتا بيس؟
             const userExists = await User.findById(decoded.id);
             if (!userExists) {
-                return res.status(401).json({ message: "هذا الحساب لم يعد موجوداً" });
+                return res.status(401).json({ message: req.t('user_not_found') });
             }
 
             req.user = decoded;
@@ -378,7 +442,7 @@ const isAdmin = (req, res, next) => {
     if (req.user && req.user.isAdmin) {
         next();
     } else {
-        res.status(403).json({ message: "هذا الإجراء مخصص للمسؤولين فقط" });
+        res.status(403).json({ message: req.t('admin_only') });
     }
 };
 
@@ -522,16 +586,16 @@ app.get('/api/products', async (req, res) => {
         pipeline.push({ $unwind: { path: "$category", preserveNullAndEmptyArrays: true } });
 
         const products = await Product.aggregate(pipeline);
-        
+
         // 💡 الحل السحري هنا: 
         // إذا كان الطلب من شاشة البحث نرجع Object، وإذا من الرئيسية نرجع Array
         if (page && limit) {
             res.status(200).json({
-                data: products,
+                data: products.map(p => Product.hydrate(p).toJSON({ lang: req.lang })),
                 hasMore: products.length === parseInt(limit) 
             });
         } else {
-            res.status(200).json(products);
+            res.status(200).json(products.map(p => Product.hydrate(p).toJSON({ lang: req.lang })));
         }
 
     } catch (err) {
@@ -760,199 +824,166 @@ app.post('/api/wishlist', authenticateToken, async (req, res) => {
 // --- روابط المصادقة (Authentication) ---
 
 // تسجيل حساب جديد
-app.post('/api/auth/register', async (req, res) => {
-    try {
-        const { name, email, password, phone } = req.body;
-        
-        // حماية: التحقق من قوة كلمة المرور (مثلاً 6 أحرف على الأقل)
-        if (!password || password.length < 6) return res.status(400).json({ message: "كلمة المرور يجب أن تكون 6 أحرف على الأقل" });
-
-        // التأكد من أن البريد غير مسجل كحساب حقيقي
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(400).json({ message: "البريد الإلكتروني مسجل مسبقاً" });
-        }
-
-        // إنشاء رمز OTP مكون من 6 أرقام
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
-        const otpExpires = Date.now() + 10 * 60 * 1000; // صالح لمدة 10 دقائق
-        
-        const hashedPassword = await bcrypt.hash(password, 10);
-        
-        // حفظ البيانات في الجدول المؤقت (PendingUser) بدلاً من User
-        // نستخدم findOneAndUpdate مع upsert لتحديث البيانات إذا حاول التسجيل مرة أخرى قبل التفعيل
-        await PendingUser.findOneAndUpdate(
-            { email },
-            {
-                name, 
-                email, 
-                password: hashedPassword, 
-                phone,
-                otp: hashedOtp, 
-                otpExpires
-            },
-            { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
-
-        // إرسال رمز التحقق عبر الإيميل
-        const emailContent = `
-            <p>مرحباً ${name}،</p>
-            <p>شكراً لتسجيلك في Details Store. لتفعيل حسابك، يرجى استخدام رمز التحقق التالي:</p>
-            <div style="text-align: center; margin: 30px 0;">
-                <span style="background-color: #f0f0f0; color: #000; padding: 15px 30px; font-size: 24px; letter-spacing: 5px; font-weight: bold; border-radius: 8px; border: 1px dashed #333;">${otp}</span>
-            </div>
-            <p style="color: #666; font-size: 12px;">هذا الرمز صالح لمدة 10 دقائق.</p>
-        `;
-
-        await sendEmailViaBrevo({
-            to: email,
-            subject: 'رمز تفعيل الحساب - Details Store',
-            htmlContent: getEmailTemplate('تفعيل الحساب', emailContent)
-        });
-        
-        res.status(200).json({ message: "تم إرسال رمز التحقق إلى بريدك الإلكتروني", email });
-
-    } catch (err) {
-        console.error("Register Error:", err); // تسجيل الخطأ في السيرفر فقط للمطور
-        res.status(500).json({ message: "خطأ في إنشاء الحساب" }); // حماية: عدم إرسال تفاصيل الخطأ التقنية للمستخدم
+app.post('/api/auth/register', [
+    body('name').trim().notEmpty().withMessage('الاسم مطلوب'),
+    body('email').isEmail().withMessage('البريد الإلكتروني غير صحيح'),
+    body('password').isLength({ min: 6 }).withMessage('كلمة المرور يجب أن تكون 6 أحرف على الأقل'),
+    validateRequest
+], asyncHandler(async (req, res) => {
+    const { name, email, password, phone } = req.body;
+    
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+        return res.status(400).json({ message: "البريد الإلكتروني مسجل مسبقاً" });
     }
-});
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+    const otpExpires = Date.now() + 10 * 60 * 1000; 
+    
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    await PendingUser.findOneAndUpdate(
+        { email },
+        { name, email, password: hashedPassword, phone, otp: hashedOtp, otpExpires },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    const emailContent = `
+        <p>مرحباً ${name}،</p>
+        <p>شكراً لتسجيلك في Details Store. لتفعيل حسابك، يرجى استخدام رمز التحقق التالي:</p>
+        <div style="text-align: center; margin: 30px 0;">
+            <span style="background-color: #f0f0f0; color: #000; padding: 15px 30px; font-size: 24px; letter-spacing: 5px; font-weight: bold; border-radius: 8px; border: 1px dashed #333;">${otp}</span>
+        </div>
+        <p style="color: #666; font-size: 12px;">هذا الرمز صالح لمدة 10 دقائق.</p>
+    `;
+
+    await sendEmailViaBrevo({
+        to: email,
+        subject: 'رمز تفعيل الحساب - Details Store',
+        htmlContent: getEmailTemplate('تفعيل الحساب', emailContent)
+    });
+    
+    res.status(200).json({ message: "تم إرسال رمز التحقق إلى بريدك الإلكتروني", email });
+}));
 
 // تفعيل الحساب باستخدام OTP
-app.post('/api/auth/verify-email', async (req, res) => {
-    try {
-        const { email, otp } = req.body;
+app.post('/api/auth/verify-email', [
+    body('email').isEmail().withMessage('البريد الإلكتروني غير صحيح'),
+    body('otp').notEmpty().withMessage('رمز التحقق مطلوب'),
+    validateRequest
+], asyncHandler(async (req, res) => {
+    const { email, otp } = req.body;
 
-        if (!email || !otp) {
-            return res.status(400).json({ message: "البيانات ناقصة" });
-        }
+    const hashedOtp = crypto.createHash('sha256').update(otp.toString()).digest('hex');
 
-        // تشفير الرمز المدخل لمقارنته مع المخزن
-        const hashedOtp = crypto.createHash('sha256').update(otp.toString()).digest('hex');
+    const pendingUser = await PendingUser.findOne({
+        email,
+        otp: hashedOtp,
+        otpExpires: { $gt: Date.now() } 
+    });
 
-        // البحث في الجدول المؤقت (PendingUser)
-        const pendingUser = await PendingUser.findOne({
-            email,
-            otp: hashedOtp,
-            otpExpires: { $gt: Date.now() } // التأكد أن الرمز لم تنته صلاحيته
-        });
-
-        if (!pendingUser) {
-            return res.status(400).json({ message: "رمز التحقق غير صحيح أو منتهي الصلاحية" });
-        }
-
-        // نقل البيانات من المؤقت إلى الجدول الأساسي (إنشاء الحساب الحقيقي الآن)
-        const newUser = new User({
-            name: pendingUser.name,
-            email: pendingUser.email,
-            password: pendingUser.password,
-            phone: pendingUser.phone,
-            isVerified: true, // الحساب مفعل وجاهز
-            isAdmin: false,
-            fcmTokens: req.body.fcmToken ? [req.body.fcmToken] : [] // 🌟 إضافة التوكن فور التفعيل
-        });
-        await newUser.save();
-
-        // حذف البيانات من الجدول المؤقت
-        await PendingUser.deleteOne({ email });
-
-        // تسجيل الدخول مباشرة بعد التفعيل
-        const expiresIn = newUser.isAdmin ? '7d' : '30d';
-        const token = jwt.sign({ id: newUser._id, email: newUser.email, isAdmin: newUser.isAdmin }, process.env.JWT_SECRET, { expiresIn });
-
-        res.status(200).json({ 
-            message: "تم تفعيل الحساب بنجاح",
-            token,
-            user: { id: newUser._id, name: newUser.name, email: newUser.email, isAdmin: newUser.isAdmin }
-        });
-
-    } catch (err) {
-        console.error("Verification Error:", err);
-        res.status(500).json({ message: "حدث خطأ أثناء التفعيل" });
+    if (!pendingUser) {
+        return res.status(400).json({ message: "رمز التحقق غير صحيح أو منتهي الصلاحية" });
     }
-});
+
+    const newUser = new User({
+        name: pendingUser.name,
+        email: pendingUser.email,
+        password: pendingUser.password,
+        phone: pendingUser.phone,
+        isVerified: true,
+        isAdmin: false,
+        fcmTokens: req.body.fcmToken ? [req.body.fcmToken] : []
+    });
+    await newUser.save();
+    await PendingUser.deleteOne({ email });
+
+    if (newUser.phone) {
+        await Order.updateMany(
+            { "shippingAddress.phone": newUser.phone, userId: null },
+            { userId: newUser._id }
+        );
+    }
+
+    const expiresIn = newUser.isAdmin ? '7d' : '30d';
+    const token = jwt.sign({ id: newUser._id, email: newUser.email, isAdmin: newUser.isAdmin }, process.env.JWT_SECRET, { expiresIn });
+
+    res.status(200).json({ 
+        message: "تم تفعيل الحساب بنجاح",
+        token,
+        user: { id: newUser._id, name: newUser.name, email: newUser.email, isAdmin: newUser.isAdmin }
+    });
+}));
 
 // تسجيل الدخول
-app.post('/api/auth/login', async (req, res) => {
-    try {
-        const { email, password } = req.body;
-        const user = await User.findOne({ email });
-        if (!user) return res.status(400).json({ message: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
+app.post('/api/auth/login', [
+    body('email').isEmail().withMessage('البريد الإلكتروني غير صحيح'),
+    body('password').notEmpty().withMessage('كلمة المرور مطلوبة'),
+    validateRequest
+], asyncHandler(async (req, res) => {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ message: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
 
-        // التحقق من أن الحساب مفعل
-        if (!user.isVerified) {
-            return res.status(400).json({ message: "يرجى تفعيل الحساب أولاً عبر الرمز المرسل لبريدك الإلكتروني" });
-        }
-
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(400).json({ message: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
-
-        if (req.body.fcmToken && !user.fcmTokens.includes(req.body.fcmToken)) {
-            user.fcmTokens.push(req.body.fcmToken);
-            await user.save();
-        }
-
-        const expiresIn = user.isAdmin ? '7d' : '30d';
-        const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn });
-
-        res.json({ 
-            token, 
-            user: { 
-                id: user._id, 
-                name: user.name, 
-                email: user.email, 
-                isAdmin: user.isAdmin,
-                phone: user.phone,
-                avatar: user.avatar
-            } 
-        });
-    } catch (err) {
-        res.status(500).json({ message: "خطأ في تسجيل الدخول" });
+    if (!user.isVerified) {
+        return res.status(400).json({ message: "يرجى تفعيل الحساب أولاً عبر الرمز المرسل لبريدك الإلكتروني" });
     }
-});
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ message: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
+
+    if (req.body.fcmToken && !user.fcmTokens.includes(req.body.fcmToken)) {
+        user.fcmTokens.push(req.body.fcmToken);
+        await user.save();
+    }
+
+    if (user.phone) {
+        await Order.updateMany(
+            { "shippingAddress.phone": user.phone, userId: null },
+            { userId: user._id }
+        );
+    }
+
+    const expiresIn = user.isAdmin ? '7d' : '30d';
+    const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn });
+
+    res.json({ token, user });
+}));
 
 // طلب إعادة تعيين كلمة المرور (نسيت كلمة السر)
-app.post('/api/auth/forgot-password', async (req, res) => {
-    try {
-        // 1. البحث عن المستخدم عن طريق الإيميل
-        const user = await User.findOne({ email: req.body.email });
-        if (!user) {
-            // حماية: حتى لو المستخدم غير موجود، نرسل رسالة نجاح عامة لمنع كشف الإيميلات المسجلة
-            return res.status(200).json({ message: "إذا كان بريدك الإلكتروني مسجلاً لدينا، فستصلك رسالة لإعادة تعيين كلمة المرور." });
-        }
-
-        // 2. إنشاء توكن إعادة التعيين
-        const resetToken = crypto.randomBytes(32).toString('hex');
-        user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-        user.passwordResetExpires = Date.now() + 10 * 60 * 1000; // صلاحية 10 دقائق
-        await user.save();
-
-        // 3. إرسال التوكن إلى إيميل المستخدم
-        const resetURL = `https://details-store.com/reset-password/${resetToken}`; 
-        
-        const emailContent = `
-            <p>لقد طلبت إعادة تعيين كلمة المرور الخاصة بك.</p>
-            <p>اضغط على الرابط التالي لإعادة تعيينها. هذا الرابط صالح لمدة 10 دقائق فقط.</p>
-            <div style="text-align: center; margin: 20px 0;">
-                <a href="${resetURL}" style="background-color: #000; color: #fff; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">إعادة تعيين كلمة المرور</a>
-            </div>
-            <p>إذا لم تطلب ذلك، يرجى تجاهل هذه الرسالة.</p>
-        `;
-
-        await sendEmailViaBrevo({
-            to: user.email,
-            subject: 'إعادة تعيين كلمة المرور - Details Store',
-            htmlContent: getEmailTemplate('إعادة تعيين كلمة المرور', emailContent)
-        });
-
-        res.status(200).json({ message: "إذا كان بريدك الإلكتروني مسجلاً لدينا، فستصلك رسالة لإعادة تعيين كلمة المرور." });
-
-    } catch (err) {
-        console.error("Forgot Password Error:", err);
-        res.status(500).json({ message: "حدث خطأ، يرجى المحاولة مرة أخرى." });
+app.post('/api/auth/forgot-password', [
+    body('email').isEmail().withMessage('البريد الإلكتروني غير صحيح'),
+    validateRequest
+], asyncHandler(async (req, res) => {
+    const user = await User.findOne({ email: req.body.email });
+    if (!user) {
+        return res.status(200).json({ message: "إذا كان بريدك الإلكتروني مسجلاً لدينا، فستصلك رسالة لإعادة تعيين كلمة المرور." });
     }
-});
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    user.passwordResetExpires = Date.now() + 10 * 60 * 1000;
+    await user.save();
+
+    const resetURL = `https://details-store.com/reset-password/${resetToken}`; 
+    
+    const emailContent = `
+        <p>لقد طلبت إعادة تعيين كلمة المرور الخاصة بك.</p>
+        <p>اضغط على الرابط التالي لإعادة تعيينها. هذا الرابط صالح لمدة 10 دقائق فقط.</p>
+        <div style="text-align: center; margin: 20px 0;">
+            <a href="${resetURL}" style="background-color: #000; color: #fff; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">إعادة تعيين كلمة المرور</a>
+        </div>
+    `;
+
+    await sendEmailViaBrevo({
+        to: user.email,
+        subject: 'إعادة تعيين كلمة المرور - Details Store',
+        htmlContent: getEmailTemplate('إعادة تعيين كلمة المرور', emailContent)
+    });
+
+    res.status(200).json({ message: "إذا كان بريدك الإلكتروني مسجلاً لدينا، فستصلك رسالة لإعادة تعيين كلمة المرور." });
+}));
 
 // إعادة تعيين كلمة المرور باستخدام التوكن
 app.post('/api/auth/reset-password/:token', async (req, res) => {
@@ -1039,6 +1070,14 @@ app.post('/api/auth/google', async (req, res) => {
             await user.save();
         }
 
+        // 🌟 مزامنة طلبات الزوار عند الدخول عبر جوجل
+        if (user.phone) {
+            await Order.updateMany(
+                { "shippingAddress.phone": user.phone, userId: null },
+                { userId: user._id }
+            );
+        }
+
         // إنشاء التوكن الخاص بنا
         const expiresIn = user.isAdmin ? '7d' : '30d';
         const token = jwt.sign(
@@ -1103,7 +1142,6 @@ app.post('/api/addresses', authenticateToken, async (req, res) => {
         res.status(201).json(savedAddress);
     } catch (err) {
         console.error("❌ Add Address Error:", err);
-        res.status(400).json({ message: "فشل في إضافة العنوان", error: err.message });
         res.status(400).json({ 
             message: "فشل في إضافة العنوان: تأكد من صحة البيانات المرسلة", 
             error: err.message,
@@ -1406,14 +1444,26 @@ app.post('/api/contact', async (req, res) => {
 });
 
 // إنشاء طلب جديد (معدل باحترافية لتجنب أخطاء المخزون باستخدام Transactions)
-app.post('/api/orders', authenticateToken, async (req, res) => {
+app.post('/api/orders', async (req, res) => {
     // 1. بدء Session لضمان أن كل العمليات تتم بنجاح أو تُلغى بالكامل
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
+        // محاولة التعرف على المستخدم إذا كان التوكن موجوداً (اختياري)
+        let userId = null;
+        const authHeader = req.headers['authorization'];
+        const token = authHeader && authHeader.split(' ')[1];
+        if (token) {
+            try {
+                const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                userId = decoded.id;
+            } catch (err) {
+                // إذا كان التوكن خاطئاً، نكمل كزائر ولا نوقف العملية
+            }
+        }
+
         const { products, subtotal, discountAmount, couponCode, deliveryFee, amount, shippingAddress, payment_method } = req.body;
-        
         // 2. إذا تم استخدام كوبون، نقوم بزيادة عداد استخدامه
         if (couponCode) {
             await Coupon.findOneAndUpdate(
@@ -1457,7 +1507,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 
         // 4. إنشاء الطلب في قاعدة البيانات
         const newOrder = new Order({
-            userId: req.user.id,
+            userId: userId, // سيأخذ القيمة أو يبقى null إذا كان زائراً
             products,
             subtotal,
             discountAmount,
@@ -1501,6 +1551,22 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
         res.status(200).json(orders);
     } catch (err) {
         res.status(500).json({ message: "خطأ في جلب الطلبات" });
+    }
+});
+
+// جلب طلبات الزوار بناءً على قائمة معرفات (IDs) مخزنة محلياً في التطبيق
+app.get('/api/orders/guest', async (req, res) => {
+    try {
+        const { ids } = req.query;
+        if (!ids) return res.json([]);
+
+        // تحويل النص القادم (ID1,ID2) إلى مصفوفة وفلترة المعرفات غير الصحيحة
+        const orderIds = ids.split(',').map(id => id.trim()).filter(id => mongoose.Types.ObjectId.isValid(id));
+        const orders = await Order.find({ _id: { $in: orderIds } }).sort({ createdAt: -1 });
+
+        res.status(200).json(orders);
+    } catch (err) {
+        res.status(500).json({ message: "خطأ في جلب بيانات طلبات الزوار" });
     }
 });
 
@@ -1740,13 +1806,27 @@ app.get('/api/popular-products', async (req, res) => {
     }
 });
 
+// --- Middleware مركزي لمعالجة الأخطاء (Global Error Handler) ---
+app.use((err, req, res, next) => {
+    console.error("❌ Global Error Handler:", err);
+    const statusCode = err.statusCode || 500;
+    res.status(statusCode).json({
+        message: err.message || "حدث خطأ غير متوقع في السيرفر",
+        error: process.env.NODE_ENV === 'development' ? err.stack : {}
+    });
+});
+
 // 5. تشغيل السيرفر
 mongoose.connect(dbURI, {
     family: 4 // 💡 إجبار Node.js على استخدام IPv4 لحل مشكلة الاتصال في منصة Render
-})
+}) 
     .then(() => {
         console.log('✅ Connected to Details Store Database');
         app.listen(PORT, () => {
             console.log(`🚀 Details Backend is running on port: ${PORT}`);
         });
+    })
+    .catch((err) => { // 🌟 الحماية من فشل الاتصال
+        console.error('❌ Failed to connect to Database:', err.message);
+        process.exit(1);
     });
