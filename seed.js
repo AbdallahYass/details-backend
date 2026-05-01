@@ -1,3 +1,4 @@
+require('dotenv').config();
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
@@ -37,14 +38,14 @@ const productSchema = new mongoose.Schema({
     variants: [variantSchema]
 }, { timestamps: true });
 
-productSchema.pre('save', function() {
-    const variantsTotal = (this.variants && this.variants.length > 0) 
-        ? this.variants.reduce((total, v) => total + (Number(v.quantity) || 0), 0)
-        : 0;
-    if (variantsTotal > 0) {
-        this.quantity = variantsTotal;
+productSchema.pre('save', function(next) {
+    if (this.variants && this.variants.length > 0) {
+        this.quantity = this.variants.reduce((total, v) => total + (Number(v.quantity) || 0), 0);
+    } else {
+        this.quantity = Number(this.quantity) || 0;
     }
-    this.isSoldOut = (Number(this.quantity) || 0) <= 0;
+    this.isSoldOut = this.quantity <= 0;
+    next();
 });
 
 const Product = mongoose.model('Product', productSchema);
