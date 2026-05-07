@@ -280,7 +280,8 @@ const categorySchema = new mongoose.Schema({
         en: { type: String, required: true }
     },
     slug: { type: String, required: true, unique: true }, // للربط مع المنتجات (مثلاً: bags)
-    imageUrl: { type: String, required: true }
+    imageUrl: { type: String, required: true },
+    allowOriginalBox: { type: Boolean, default: false } // 🌟 الحقل الجديد
 }, { timestamps: true });
 
 categorySchema.set('toJSON', {
@@ -359,7 +360,8 @@ const orderSchema = new mongoose.Schema({
         imageUrl: String,
         size: String,
         color: String,
-        withBox: { type: Boolean, default: false } // لدعم خيار تغليف الهدايا
+        withBox: { type: Boolean, default: false }, // لدعم خيار تغليف الهدايا
+        withOriginalBox: { type: Boolean, default: false } // 🌟 علبة أصلية (10 شيكل)
     }],
     subtotal: { type: Number, required: true }, // المجموع قبل الخصم
     discountAmount: { type: Number, default: 0 }, // قيمة الخصم
@@ -1467,10 +1469,10 @@ app.post('/api/orders', async (req, res) => {
             }
         }
 
-        const { products: incomingProducts, couponCode, deliveryFee, shippingAddress, payment_method, name, isGuest } = req.body;
+        const { products: incomingProducts, couponCode, deliveryFee, shippingAddress, payment_method, name, isGuest } = req.body; // استقبل withOriginalBox
 
         let calculatedSubtotal = 0;
-        let calculatedGiftFees = 0;
+        let calculatedAdditionalFees = 0; // 🌟 تغيير الاسم ليكون أشمل
         const finalProducts = [];
 
         // 🌟 تأكد من وجود اسم المستلم داخل كائن العنوان (مفيد جداً لطلبات الزوار)
@@ -1490,28 +1492,45 @@ app.post('/api/orders', async (req, res) => {
 
         // 3. خصم الكميات من المخزون بطريقة آمنة
         for (const item of incomingProducts) {
-            const product = await Product.findById(item.id).session(session);
+            // جلب المنتج مع الكاتيجوري لمعرفة ما إذا كان مسموحاً بالعلبة الأصلية
+            const product = await Product.findById(item.id).populate('category').session(session);
             
             if (!product) {
-                throw new Error(`المنتج ${item.title} غير موجود في المستودع.`);
+                throw new Error(`المنتج ${item.title} غير موجود.`);
             }
 
-            // حساب سعر التغليف: 5 لجميع الأصناف
-            const itemGiftFee = item.withBox ? 5 : 0;
+            // 🌟 حساب الرسوم الإضافية بأمان في السيرفر (5 شيكل للتغليف، 10 شيكل للعلبة الأصلية)
+            let itemAdditionalFees = 0;
+            
+            // 1. رسوم تغليف الهدايا (5 شيكل)
+            if (item.withBox === true) {
+                itemAdditionalFees += 5;
+            }
+
+            // 2. رسوم العلبة الأصلية (10 شيكل) - نتحقق أن القسم يسمح بذلك
+            const categoryAllowsOriginalBox = product.category && product.category.allowOriginalBox === true;
+            if (item.withOriginalBox === true && categoryAllowsOriginalBox) {
+                itemAdditionalFees += 10;
+            } else if (item.withOriginalBox === true && !categoryAllowsOriginalBox) {
+                // إذا حاول العميل طلب علبة أصلية لمنتج لا يدعمها، نعدل القيمة لتجنب المشاكل في لوحة التحكم
+                console.warn(`Client tried to order original box for product ${item.id} in category ${product.category?.name?.ar} which does not allow it.`);
+                item.withOriginalBox = false; 
+            }
 
             calculatedSubtotal += product.price * item.quantity;
-            calculatedGiftFees += itemGiftFee * item.quantity;
+            calculatedAdditionalFees += itemAdditionalFees * item.quantity;
 
             // بناء كائن المنتج النهائي للطلب بالأسعار الموثوقة من السيرفر
             finalProducts.push({
                 id: product._id,
-                title: product.name.ar, // نستخدم الاسم من قاعدة البيانات للأمان
+                title: product.name.ar,
                 quantity: item.quantity,
-                price: product.price + itemGiftFee, // السعر المخزن يشمل رسوم التغليف
+                price: product.price + itemAdditionalFees, // السعر النهائي المخزن يشمل الرسوم
                 imageUrl: product.imageUrl,
                 size: item.size,
                 color: item.color,
-                withBox: item.withBox
+                withBox: item.withBox,
+                withOriginalBox: item.withOriginalBox // حفظ الحالة للوحة الإدارة
             });
 
             // خصم من المخزون الفعلي (Variants)
@@ -1551,14 +1570,14 @@ app.post('/api/orders', async (req, res) => {
             await couponDoc.save({ session });
         }
 
-        const finalAmount = (calculatedSubtotal + calculatedGiftFees + (Number(deliveryFee) || 0)) - finalDiscount;
+        const finalAmount = (calculatedSubtotal + calculatedAdditionalFees + (Number(deliveryFee) || 0)) - finalDiscount;
 
         // 5. إنشاء الطلب في قاعدة البيانات
         const newOrder = new Order({
             userId: userId, // سيأخذ القيمة أو يبقى null إذا كان زائراً
             isGuest: isGuest || (userId ? false : true), // تحديد حالة الزائر تلقائياً
             products: finalProducts,
-            subtotal: calculatedSubtotal + calculatedGiftFees,
+            subtotal: calculatedSubtotal + calculatedAdditionalFees,
             discountAmount: finalDiscount,
             couponCode,
             deliveryFee,

@@ -72,7 +72,8 @@ const categorySchema = new mongoose.Schema({
         en: { type: String, required: true }
     },
     slug: { type: String, required: true, unique: true },
-    imageUrl: { type: String, required: true }
+    imageUrl: { type: String, required: true },
+    allowOriginalBox: { type: Boolean, default: false }
 }, { timestamps: true });
 
 categorySchema.set('toJSON', {
@@ -138,7 +139,8 @@ const orderSchema = new mongoose.Schema({
         imageUrl: String,
         size: String,
         color: String,
-        withBox: { type: Boolean, default: false }
+        withBox: { type: Boolean, default: false },
+        withOriginalBox: { type: Boolean, default: false }
     }],
     subtotal: Number,
     discountAmount: Number,
