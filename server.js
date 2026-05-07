@@ -350,6 +350,7 @@ const Coupon = mongoose.model('Coupon', couponSchema);
 // قالب الطلبات (Orders)
 const orderSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // إزالة required لدعم الزوار
+    isGuest: { type: Boolean, default: false }, // حقل لتمييز طلبات الزوار
     products: [{
         id: String,
         title: String,
@@ -1466,29 +1467,52 @@ app.post('/api/orders', async (req, res) => {
             }
         }
 
-        const { products, subtotal, discountAmount, couponCode, deliveryFee, amount, shippingAddress, payment_method, name } = req.body;
+        const { products: incomingProducts, couponCode, deliveryFee, shippingAddress, payment_method, name, isGuest } = req.body;
+
+        let calculatedSubtotal = 0;
+        let calculatedGiftFees = 0;
+        const finalProducts = [];
 
         // 🌟 تأكد من وجود اسم المستلم داخل كائن العنوان (مفيد جداً لطلبات الزوار)
         if (shippingAddress && name && !shippingAddress.name) {
             shippingAddress.name = name;
         }
 
-        // 2. إذا تم استخدام كوبون، نقوم بزيادة عداد استخدامه
+        // 2. معالجة الكوبون (التحقق الأولي)
+        let couponDoc = null;
+        let finalDiscount = 0;
         if (couponCode) {
-            await Coupon.findOneAndUpdate(
-                { code: couponCode }, 
-                { $inc: { usedCount: 1 } },
-                { session } // ربط العملية بالـ Session
-            );
+            couponDoc = await Coupon.findOne({ code: couponCode.toUpperCase(), isActive: true }).session(session);
+            if (couponDoc && (new Date() > couponDoc.expirationDate || couponDoc.usedCount >= couponDoc.usageLimit)) {
+                couponDoc = null; // الكوبون غير صالح حالياً
+            }
         }
 
         // 3. خصم الكميات من المخزون بطريقة آمنة
-        for (const item of products) {
+        for (const item of incomingProducts) {
             const product = await Product.findById(item.id).session(session);
             
             if (!product) {
                 throw new Error(`المنتج ${item.title} غير موجود في المستودع.`);
             }
+
+            // حساب سعر التغليف: 5 لجميع الأصناف
+            const itemGiftFee = item.withBox ? 5 : 0;
+
+            calculatedSubtotal += product.price * item.quantity;
+            calculatedGiftFees += itemGiftFee * item.quantity;
+
+            // بناء كائن المنتج النهائي للطلب بالأسعار الموثوقة من السيرفر
+            finalProducts.push({
+                id: product._id,
+                title: product.name.ar, // نستخدم الاسم من قاعدة البيانات للأمان
+                quantity: item.quantity,
+                price: product.price + itemGiftFee, // السعر المخزن يشمل رسوم التغليف
+                imageUrl: product.imageUrl,
+                size: item.size,
+                color: item.color,
+                withBox: item.withBox
+            });
 
             // خصم من المخزون الفعلي (Variants)
             if (product.variants && product.variants.length > 0) {
@@ -1514,15 +1538,31 @@ app.post('/api/orders', async (req, res) => {
             await product.save({ session }); // سيقوم الـ pre-save بحساب الكمية الإجمالية وتحديث isSoldOut
         }
 
-        // 4. إنشاء الطلب في قاعدة البيانات
+        // 4. حساب الخصم النهائي بعد التأكد من المجموع
+        if (couponDoc) {
+            if (couponDoc.discountType === 'percentage') {
+                finalDiscount = (calculatedSubtotal * (couponDoc.value / 100));
+            } else {
+                finalDiscount = Math.min(couponDoc.value, calculatedSubtotal); // لا يمكن أن يكون الخصم أكبر من المجموع
+            }
+            
+            // تحديث عداد استخدام الكوبون
+            couponDoc.usedCount += 1;
+            await couponDoc.save({ session });
+        }
+
+        const finalAmount = (calculatedSubtotal + calculatedGiftFees + (Number(deliveryFee) || 0)) - finalDiscount;
+
+        // 5. إنشاء الطلب في قاعدة البيانات
         const newOrder = new Order({
             userId: userId, // سيأخذ القيمة أو يبقى null إذا كان زائراً
-            products,
-            subtotal,
-            discountAmount,
+            isGuest: isGuest || (userId ? false : true), // تحديد حالة الزائر تلقائياً
+            products: finalProducts,
+            subtotal: calculatedSubtotal + calculatedGiftFees,
+            discountAmount: finalDiscount,
             couponCode,
             deliveryFee,
-            amount, 
+            amount: finalAmount, 
             shippingAddress,
             paymentMethod: payment_method || 'cod'
         });

@@ -129,6 +129,7 @@ const Coupon = mongoose.model('Coupon', couponSchema);
 // قالب الطلبات (Orders)
 const orderSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // أصبح اختيارياً لدعم الزوار
+    isGuest: { type: Boolean, default: false },
     products: [{
         id: String,
         title: String,
