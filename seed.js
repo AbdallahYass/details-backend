@@ -154,7 +154,9 @@ const orderSchema = new mongoose.Schema({
         phone: String
     },
     paymentMethod: { type: String, default: 'cod' },
-    status: { type: String, default: 'قيد التجهيز' }
+    status: { type: String, default: 'قيد التجهيز' },
+    notes: { type: String, default: "" },
+    withGiftBox: { type: Boolean, default: false }
 }, { timestamps: true });
 const Order = mongoose.model('Order', orderSchema);
 

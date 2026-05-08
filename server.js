@@ -383,7 +383,9 @@ const orderSchema = new mongoose.Schema({
         type: String, 
         enum: ['قيد التجهيز', 'تم الشحن', 'تم التوصيل', 'ملغي'], 
         default: 'قيد التجهيز' 
-    }
+    },
+    notes: { type: String, default: "" },
+    withGiftBox: { type: Boolean, default: false } // 🌟 إضافة الحقل الجديد في المخطط
 }, { timestamps: true });
 
 const Order = mongoose.model('Order', orderSchema);
@@ -1469,7 +1471,7 @@ app.post('/api/orders', async (req, res) => {
             }
         }
 
-        const { products: incomingProducts, couponCode, deliveryFee, shippingAddress, payment_method, name, isGuest } = req.body; // استقبل withOriginalBox
+        const { products: incomingProducts, couponCode, deliveryFee, shippingAddress, payment_method, name, isGuest, notes, withGiftBox } = req.body; // استقبل withOriginalBox و notes و withGiftBox
 
         let calculatedSubtotal = 0;
         let calculatedAdditionalFees = 0; // 🌟 تغيير الاسم ليكون أشمل
@@ -1583,7 +1585,9 @@ app.post('/api/orders', async (req, res) => {
             deliveryFee,
             amount: finalAmount, 
             shippingAddress,
-            paymentMethod: payment_method || 'cod'
+            paymentMethod: payment_method || 'cod',
+            notes: notes || "",
+            withGiftBox: withGiftBox || false // حفظ حالة تغليف الهدايا للطلب
         });
 
         const savedOrder = await newOrder.save({ session });
